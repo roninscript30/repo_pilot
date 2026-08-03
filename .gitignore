@@ -1,0 +1,7 @@
+# Obsidian local workspace state changes frequently per user and machine.
+.obsidian/workspace*.json
+memory/.obsidian/
+.trash/
+
+# OS/editor noise.
+.DS_Store
