@@ -1,0 +1,26 @@
+[package]
+name = "gitos"
+version = "0.1.0"
+description = "GitOS - open-source, desktop-first Repository Operating Platform"
+edition = "2021"
+
+[lib]
+name = "gitos_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+keyring = "3"
+gix = { version = "0.68", features = ["default", "tree-editor"] }
+thiserror = "1"
+anyhow = "1"
+tempfile = "3"
+walkdir = "2"

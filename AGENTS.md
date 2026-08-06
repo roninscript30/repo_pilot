@@ -1,7 +1,54 @@
-# Agent Instructions
+# AI Contributor Contract
 
-This repository has a persistent project memory system. Before making significant changes, read [MEMORY.md](MEMORY.md) and the relevant memory areas for the task.
+Status: Active
+Owner: Project Maintainers
+Last Updated: 2026-08-06
 
-All AI agents must follow the permanent rules in [memory/agents/rules.md](memory/agents/rules.md).
+AI agents are engineering contributors to Repo Pilot. Every agent must preserve the repository's long-term memory and keep the knowledge base accurate.
 
-Project memory updates are part of completing development work. Record new architectural knowledge, engineering decisions, constraints, implementation discoveries, and follow-up work before handing off.
+## Required Before Work
+
+Read these files before making meaningful changes:
+
+- `memory/README.md`
+- `memory/rules.md`
+- `memory/vision.md`
+- `memory/architecture.md`
+- `memory/project-memory/active-context.md`
+
+Also read any relevant files under:
+
+- `memory/features/`
+- `memory/skills/`
+- `memory/decisions/`
+- `memory/project-memory/`
+
+## Required During Work
+
+- Follow existing architecture and naming conventions.
+- Prefer small, clear, maintainable changes.
+- Avoid unnecessary abstractions.
+- Record significant decisions as ADRs when the rationale matters long term.
+- Reuse existing project knowledge before inventing new patterns.
+
+## Required After Work
+
+A task is not complete until implementation and knowledge are synchronized.
+
+Update the knowledge base when work changes any of these:
+
+- Project direction
+- Architecture
+- Feature behavior or status
+- Engineering rules
+- Known constraints
+- Technical debt
+- Reusable skills
+- Development workflow
+- Lessons learned
+
+At minimum, update `memory/project-memory/active-context.md` or `memory/project-memory/implementation-log.md` after meaningful work.
+
+## Maintenance Rule
+
+Never treat `memory/` as optional documentation. It is the project's institutional memory and must evolve with the source code.

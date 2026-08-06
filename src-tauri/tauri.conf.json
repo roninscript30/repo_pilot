@@ -1,0 +1,97 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "GitOS",
+  "version": "0.1.0",
+  "identifier": "com.git-os.repopilot",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "GitOS",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 768,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self' 'unsafe-inline' 'unsafe-eval' data: blob:",
+        "script-src": "'self' 'unsafe-inline' 'unsafe-eval'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob:",
+        "connect-src": "'self' https://api.github.com https://github.com wss://ws.github.com",
+        "font-src": "'self' data:"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [],
+    "externalBin": [],
+    "copyright": "© 2026 GitOS Contributors",
+    "category": "DeveloperTool",
+    "shortDescription": "Open-source, desktop-first Repository Operating Platform",
+    "longDescription": "GitOS is a desktop-first platform for managing Git repositories with a focus on developer experience, multi-provider support, and extensibility.",
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libayatana-appindicator3-1", "librsvg2-common"]
+      }
+    },
+    "macOS": {
+      "entitlements": null,
+      "exceptionDomain": "",
+      "frameworks": [],
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": null,
+      "providerShortName": null
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    }
+  },
+  "plugins": {
+    "dialog": {
+      "open": true,
+      "save": true
+    },
+    "fs": {
+      "scope": {
+        "allow": ["$APPDATA/**", "$HOME/**", "$DESKTOP/**", "$DOCUMENTS/**", "$DOWNLOAD/**"],
+        "deny": []
+      }
+    },
+    "shell": {
+      "scope": {
+        "allow": [
+          {
+            "name": "git",
+            "cmd": "git",
+            "args": true
+          }
+        ],
+        "deny": []
+      }
+    }
+  }
+}
