@@ -6,7 +6,7 @@ Last Updated: 2026-08-07
 
 ## Current Stage
 
-Phase 0 foundation complete; Phase 1 UI/UX build complete (initial application commit `b2cd37b`); feature-module Repository IDE refactor complete and committed (`199b3d6`) along with the Repo Pilot rebrand and the frontend split into its own `frontend/` npm workspace. **Phase 1.5 in progress: Slices 1-3 are complete and committed — Slice 1 "Account platform" (`7a6e21f`, ADR-0012), Slice 2 "Native Git engine" (`50e739e`, system-git clone/network + all GitOperations + commit graph + file watching, ADRs 0013/0014), Slice 3 "Commit center + Sync center" (`6db8c7d`, commit templates/validation/preview/amend/empty/signed/commit&push/sync, SyncCenter full layout + per-remote account, Rust `commit_to_detail` stats/patch). Slice 4 "Compare center + diff experience" is next.**
+Phase 0 foundation complete; Phase 1 UI/UX build complete (initial application commit `b2cd37b`); feature-module Repository IDE refactor complete and committed (`199b3d6`) along with the Repo Pilot rebrand and the frontend split into its own `frontend/` npm workspace. **Phase 1.5 in progress: Slices 1-3 are complete and committed — Slice 1 "Account platform" (`7a6e21f`, ADR-0012), Slice 2 "Native Git engine" (`50e739e`, system-git clone/network + all GitOperations + commit graph + file watching, ADRs 0013/0014), Slice 3 "Commit center + Sync center" (`42f032b`, commit templates/validation/preview/amend/empty/signed/commit&push/sync, SyncCenter full layout + per-remote account, Rust `commit_to_detail` stats/patch). Slice 4 "Compare center + diff experience" is next.**
 
 ## Completed
 
