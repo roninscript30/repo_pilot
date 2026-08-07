@@ -64,4 +64,19 @@ test.describe("local repositories in browser preview", () => {
     await page.getByRole("button", { name: "Open", exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("Enter a path");
   });
+
+  test("reports that browser preview cannot clone repositories", async ({ page }) => {
+    await signIn(page);
+    await page.getByRole("link", { name: "Local Repos" }).click();
+
+    await page.getByRole("button", { name: "Clone", exact: true }).click();
+    await page.getByRole("dialog", { name: "Clone repository" }).waitFor();
+
+    await page.getByLabel("Repository URL").fill("https://github.com/octocat/hello-world.git");
+    await page.getByLabel("Destination folder").fill("/tmp");
+
+    await page.getByTestId("clone-submit").click();
+    await expect(page.getByRole("status")).toContainText("Clone failed");
+    await expect(page.getByRole("status")).toContainText("desktop runtime");
+  });
 });

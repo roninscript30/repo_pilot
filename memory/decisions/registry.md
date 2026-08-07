@@ -2,7 +2,7 @@
 
 Status: Active
 Owner: Project Maintainers
-Last Updated: 2026-08-06
+Last Updated: 2026-08-07
 
 This directory stores Architecture Decision Records.
 
@@ -38,3 +38,5 @@ Date: YYYY-MM-DD
 - `ADR-0010-repository-workspace-route-architecture.md`
 - `ADR-0011-gitengine-command-expansion-and-folder-picker.md`
 - `ADR-0012-multi-account-provider-and-device-flow.md`
+- `ADR-0013-system-git-for-network-and-complex-ops.md`
+- `ADR-0014-commit-graph-and-git-events-command-surface.md`

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Icon } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/toast-context";
+import { CloneRepositoryDialog } from "@/features/local/components/CloneRepositoryDialog";
 import { useLocalReposStore } from "@/features/local/store";
 import { pickFolder } from "@/services/dialog";
 import { isTauriRuntime } from "@/services/runtime";
@@ -27,6 +28,7 @@ export function LocalRepoGate({ fullName, children }: LocalRepoGateProps) {
   const repositories = useLocalReposStore((state) => state.repositories);
   const add = useLocalReposStore((state) => state.add);
   const [picking, setPicking] = useState(false);
+  const [showClone, setShowClone] = useState(false);
   const { toast } = useToast();
 
   const entry = repositories.find((candidate) => candidate.fullName === fullName);
@@ -53,10 +55,16 @@ export function LocalRepoGate({ fullName, children }: LocalRepoGateProps) {
           description="Working Tree, Branches, Sync and Compare run on a local Git working tree. Link a folder to this repository to enable the Git engine."
           action={
             <div className="flex flex-col items-center gap-2">
-              <Button size="sm" variant="primary" onClick={() => void pickAndLink()} disabled={picking}>
-                <Icon name={picking ? "refresh" : "folder"} size={13} />
-                {picking ? "Opening picker…" : isTauriRuntime() ? "Pick folder" : "Pick a folder"}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="primary" onClick={() => void pickAndLink()} disabled={picking}>
+                  <Icon name={picking ? "refresh" : "folder"} size={13} />
+                  {picking ? "Opening picker…" : isTauriRuntime() ? "Pick folder" : "Pick a folder"}
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => setShowClone(true)} disabled={picking}>
+                  <Icon name="download" size={13} />
+                  Clone &amp; link
+                </Button>
+              </div>
               {isTauriRuntime() ? null : (
                 <p className="text-2xs text-surface-400">
                   Browser preview has no native dialog.{" "}
@@ -76,6 +84,11 @@ export function LocalRepoGate({ fullName, children }: LocalRepoGateProps) {
           }
         />
       </div>
+      <CloneRepositoryDialog
+        open={showClone}
+        onClose={() => setShowClone(false)}
+        onCloned={(path) => add(path, fullName)}
+      />
     </div>
   );
 }

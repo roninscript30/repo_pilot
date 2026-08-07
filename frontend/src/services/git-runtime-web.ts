@@ -5,6 +5,7 @@ import type {
   GitOperation,
   GitOperationResult,
   GitRuntime,
+  GitVersion,
   WorktreeStatus,
 } from "@/domain/ports/git-runtime";
 import { WEB_FALLBACK_MESSAGE } from "@/domain/ports/git-runtime";
@@ -60,6 +61,14 @@ export class WebFallbackGitRuntime implements GitRuntime {
 
   async getSyncLog(): Promise<SyncLog> {
     return EMPTY_SYNC_LOG;
+  }
+
+  async cloneRepository(): Promise<GitOperationResult> {
+    return this.unsupported();
+  }
+
+  async getGitVersion(): Promise<GitVersion> {
+    return { version: null };
   }
 
   async run(

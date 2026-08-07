@@ -67,6 +67,27 @@ export interface FileDiffSpec {
   readonly target: "index" | "worktree";
 }
 
+/** Optional clone knobs (all optional; `exactOptionalPropertyTypes`). */
+export interface CloneOptions {
+  readonly depth?: number;
+  readonly branch?: string;
+  /** GitHub account whose token authorizes an HTTPS clone. */
+  readonly accountLogin?: string;
+}
+
+/** Input for the desktop `git clone` flow. */
+export interface CloneInput extends CloneOptions {
+  readonly url: string;
+  readonly targetDir: string;
+  /** Correlates progress events streamed as `git://progress`. */
+  readonly operationId: string;
+}
+
+/** Reported system-git availability. */
+export interface GitVersion {
+  readonly version: string | null;
+}
+
 /**
  * Seam for all local Git operations.
  *
@@ -89,6 +110,9 @@ export interface GitRuntime {
   compareRefs(path: string, baseRef: string, targetRef: string): Promise<RefComparison>;
   mergePreview(path: string, headRef: string, targetRef: string): Promise<MergePreview>;
   getSyncLog(path: string): Promise<SyncLog>;
+
+  cloneRepository(input: CloneInput): Promise<GitOperationResult>;
+  getGitVersion(): Promise<GitVersion>;
 
   run(operation: GitOperation, repoPath: string, payload?: Record<string, unknown>): Promise<GitOperationResult>;
   /** Run an operation inside a throwaway sandbox repository. */

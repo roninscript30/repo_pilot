@@ -11,6 +11,7 @@ import { DiffViewer } from "@/features/git/components/DiffViewer";
 import {
   useFileDiff,
   useLocalWorktree,
+  useRepoChanged,
   useRunGitOperation,
 } from "@/features/git/hooks";
 import {
@@ -54,6 +55,7 @@ export function WorktreeView({ path }: WorktreeViewProps) {
   const { toast } = useToast();
   const worktree = useLocalWorktree(path);
   const run = useRunGitOperation(path);
+  useRepoChanged(path);
 
   const status = worktree.data ?? null;
 

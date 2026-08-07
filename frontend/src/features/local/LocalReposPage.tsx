@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { TextField } from "@/components/ui/TextField";
 import { Icon } from "@/components/ui/Icon";
+import { useGitVersion } from "@/features/git/hooks";
+import { CloneRepositoryDialog } from "@/features/local/components/CloneRepositoryDialog";
 import { resolveGitRuntime } from "@/services/runtime";
 import type { GitRuntime, WorktreeStatus } from "@/domain/ports/git-runtime";
 
@@ -18,9 +20,11 @@ import type { GitRuntime, WorktreeStatus } from "@/domain/ports/git-runtime";
  */
 export function LocalReposPage() {
   const runtime: GitRuntime = resolveGitRuntime();
+  const gitVersion = useGitVersion();
   const [repoPath, setRepoPath] = useState("");
   const [status, setStatus] = useState<WorktreeStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [showClone, setShowClone] = useState(false);
 
   async function openRepository() {
     setStatusError(null);
@@ -60,7 +64,14 @@ export function LocalReposPage() {
           <CardHeader
             title="Open repository"
             subtitle="Absolute path to a local Git working tree"
-            action={<Badge>{runtime.kind}</Badge>}
+            action={
+              <div className="flex items-center gap-2">
+                {gitVersion.data?.version ? (
+                  <Badge tone="neutral">{gitVersion.data.version}</Badge>
+                ) : null}
+                <Badge>{runtime.kind}</Badge>
+              </div>
+            }
           />
           <div className="flex items-end gap-3 p-4">
             <div className="flex-1">
@@ -72,6 +83,10 @@ export function LocalReposPage() {
                 className="font-mono text-xs"
               />
             </div>
+            <Button variant="secondary" onClick={() => setShowClone(true)}>
+              <Icon name="download" size={14} />
+              Clone
+            </Button>
             <Button onClick={() => void openRepository()}>Open</Button>
           </div>
           {statusError ? (
@@ -127,6 +142,15 @@ export function LocalReposPage() {
       {repoPath.trim() ? (
         <GitOperationsPanel runtime={runtime} repoPath={repoPath.trim()} />
       ) : null}
+
+      <CloneRepositoryDialog
+        open={showClone}
+        onClose={() => setShowClone(false)}
+        onCloned={(path) => {
+          setRepoPath(path);
+          void openRepository();
+        }}
+      />
     </div>
   );
 }

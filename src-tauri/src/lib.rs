@@ -11,13 +11,18 @@ use gix::{
 use keyring::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashSet,
     fs,
     ops::Range,
     path::{Path, PathBuf},
+    sync::Mutex,
 };
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tempfile::TempDir;
 use thiserror::Error;
+
+mod git_graph;
+mod git_system;
 
 #[derive(Error, Debug)]
 pub enum RepoPilotError {
@@ -277,6 +282,8 @@ struct CommitSummary {
     subject: String,
     author: CommitAuthor,
     committed_at: String,
+    /// Parent shas; powers the commit graph lane algorithm.
+    parents: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -413,6 +420,17 @@ async fn credential_list_accounts(
         }
     }
     Ok(accounts)
+}
+
+/// The first stored GitHub account login, if any (used when a git operation
+/// does not name an account explicitly).
+pub(crate) fn first_github_account(app: &tauri::AppHandle) -> RepoPilotResult<Option<String>> {
+    let keys = read_account_index(app)?;
+    let prefix = "github:";
+    Ok(keys
+        .iter()
+        .find(|key| key.starts_with(prefix))
+        .map(|key| key[prefix.len()..].to_string()))
 }
 
 // ---------------------------------------------------------------------------
@@ -813,6 +831,10 @@ fn commit_to_summary(commit: &gix::Commit<'_>) -> RepoPilotResult<CommitSummary>
             avatar_url: None,
         },
         committed_at: author.time.format(gix::date::time::format::ISO8601_STRICT),
+        parents: commit
+            .parent_ids()
+            .map(|parent| parent.to_hex().to_string())
+            .collect(),
     })
 }
 
@@ -1345,6 +1367,17 @@ fn stage_path(repo: &Repository, root: &Path, relative: &str) -> RepoPilotResult
     Ok(())
 }
 
+/// Delete a repository-relative path from disk (untracked discard).
+fn delete_path(root: &Path, relative: &str) -> RepoPilotResult<()> {
+    let path = root.join(relative);
+    if path.is_dir() {
+        fs::remove_dir_all(&path)?;
+    } else {
+        fs::remove_file(&path)?;
+    }
+    Ok(())
+}
+
 fn commit_message(repo: &Repository, message: &str) -> RepoPilotResult<ObjectId> {
     let tree_id = tree_id_from_index(repo)?;
     let parents: Vec<ObjectId> = match repo.head_commit() {
@@ -1357,12 +1390,113 @@ fn commit_message(repo: &Repository, message: &str) -> RepoPilotResult<ObjectId>
         .map(|id| id.detach())
 }
 
+/// Run a system-git operation, mapping a failed run to a user-facing result
+/// (the UI surfaces `ok:false` with the message via its mutation toast).
+fn run_git_op(
+    opts: &git_system::GitRunOptions,
+    success_message: impl FnOnce() -> String,
+) -> RepoPilotResult<GitOperationResult> {
+    let output = git_system::run_git_sync(opts)?;
+    if output.ok() {
+        Ok(GitOperationResult {
+            ok: true,
+            message: success_message(),
+            unsupported: None,
+        })
+    } else {
+        Ok(GitOperationResult {
+            ok: false,
+            message: git_system::last_error_message(&output),
+            unsupported: None,
+        })
+    }
+}
+
 #[tauri::command]
-async fn git_run_operation(args: GitRunOperationArgs) -> RepoPilotResult<GitOperationResult> {
+async fn git_run_operation(
+    app: tauri::AppHandle,
+    args: GitRunOperationArgs,
+) -> RepoPilotResult<GitOperationResult> {
+    let operation = args.operation.as_str();
+
+    // Network operations stream progress through system git.
+    match operation {
+        "fetch" => {
+            let remote = args.payload.get("remote").and_then(|value| value.as_str());
+            let account = args
+                .payload
+                .get("accountLogin")
+                .and_then(|value| value.as_str());
+            let result =
+                git_system::git_fetch(&app, "git-run-operation", &args.repo_path, remote, account)
+                    .await?;
+            if result.ok {
+                emit_repo_changed(&app, &args.repo_path);
+            }
+            return Ok(result);
+        }
+        "pull" => {
+            let remote = args.payload.get("remote").and_then(|value| value.as_str());
+            let branch = args.payload.get("branch").and_then(|value| value.as_str());
+            let rebase = args
+                .payload
+                .get("rebase")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let account = args
+                .payload
+                .get("accountLogin")
+                .and_then(|value| value.as_str());
+            let result = git_system::git_pull(
+                &app,
+                "git-run-operation",
+                &args.repo_path,
+                remote,
+                branch,
+                rebase,
+                account,
+            )
+            .await?;
+            if result.ok {
+                emit_repo_changed(&app, &args.repo_path);
+            }
+            return Ok(result);
+        }
+        "push" => {
+            let remote = args.payload.get("remote").and_then(|value| value.as_str());
+            let branch = args.payload.get("branch").and_then(|value| value.as_str());
+            let set_upstream = args
+                .payload
+                .get("setUpstream")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let account = args
+                .payload
+                .get("accountLogin")
+                .and_then(|value| value.as_str());
+            let result = git_system::git_push(
+                &app,
+                "git-run-operation",
+                &args.repo_path,
+                remote,
+                branch,
+                set_upstream,
+                account,
+            )
+            .await?;
+            if result.ok {
+                emit_repo_changed(&app, &args.repo_path);
+            }
+            return Ok(result);
+        }
+        _ => {}
+    }
+
     let repo = open_repo(&args.repo_path)?;
     let root = worktree_root(&repo);
 
-    let result = match args.operation.as_str() {
+    let mut mutated = false;
+    let result = match operation {
         "stage" => {
             let paths = args
                 .payload
@@ -1373,7 +1507,26 @@ async fn git_run_operation(args: GitRunOperationArgs) -> RepoPilotResult<GitOper
                 let Some(path) = path.as_str() else { continue };
                 stage_path(&repo, &root, path)?;
             }
+            mutated = true;
             Ok(GitOperationResult { ok: true, message: "Files staged".into(), unsupported: None })
+        }
+        "stage-all" => {
+            let status = get_worktree_status(&repo)?;
+            let mut count = 0usize;
+            for path in status.unstaged.iter().chain(status.untracked.iter()) {
+                stage_path(&repo, &root, path)?;
+                count += 1;
+            }
+            mutated = true;
+            Ok(GitOperationResult {
+                ok: true,
+                message: if count > 0 {
+                    format!("Staged {count} file(s)")
+                } else {
+                    "Nothing to stage".into()
+                },
+                unsupported: None,
+            })
         }
         "unstage" => {
             let paths = args
@@ -1393,7 +1546,82 @@ async fn git_run_operation(args: GitRunOperationArgs) -> RepoPilotResult<GitOper
             index
                 .write(gix::index::write::Options::default())
                 .map_err(git_err)?;
+            mutated = true;
             Ok(GitOperationResult { ok: true, message: "Files unstaged".into(), unsupported: None })
+        }
+        "unstage-all" => {
+            let status = get_worktree_status(&repo)?;
+            let mut index = repo
+                .index_or_load_from_head()
+                .map_err(git_err)?
+                .into_owned();
+            for path in status.staged {
+                let entry_path: &BStr = path.as_bytes().as_bstr();
+                index.remove_entries(|_, candidate, _| candidate == entry_path);
+            }
+            index
+                .write(gix::index::write::Options::default())
+                .map_err(git_err)?;
+            mutated = true;
+            Ok(GitOperationResult { ok: true, message: "All files unstaged".into(), unsupported: None })
+        }
+        "restore" => {
+            let paths: Vec<String> = args
+                .payload
+                .get("files")
+                .and_then(|value| value.as_array())
+                .map(|array| {
+                    array
+                        .iter()
+                        .filter_map(|value| value.as_str().map(str::to_string))
+                        .collect()
+                })
+                .ok_or_else(|| RepoPilotError::Git("Missing files".into()))?;
+            if paths.is_empty() {
+                return Err(RepoPilotError::Git("No files to restore".into()));
+            }
+            let status = get_worktree_status(&repo)?;
+            let untracked: HashSet<&str> = status.untracked.iter().map(String::as_str).collect();
+            let mut opts = git_system::GitRunOptions {
+                cwd: Some(root.clone()),
+                args: vec![
+                    "restore".into(),
+                    "--staged".into(),
+                    "--worktree".into(),
+                    "--".into(),
+                ],
+                extra_env: Vec::new(),
+                auth: None,
+            };
+            let mut deleted = false;
+            for path in &paths {
+                if untracked.contains(path.as_str()) {
+                    delete_path(&root, path)?;
+                    deleted = true;
+                } else {
+                    opts.args.push(path.clone());
+                }
+            }
+            let tracked = opts.args.len() > 4;
+            if tracked {
+                let output = git_system::run_git_sync(&opts)?;
+                if !output.ok() {
+                    return Ok(GitOperationResult {
+                        ok: false,
+                        message: git_system::last_error_message(&output),
+                        unsupported: None,
+                    });
+                }
+            }
+            mutated = true;
+            let message = if deleted && tracked {
+                "Changes discarded"
+            } else if tracked {
+                "Changes restored to HEAD"
+            } else {
+                "Untracked files removed"
+            };
+            Ok(GitOperationResult { ok: true, message: message.into(), unsupported: None })
         }
         "commit" => {
             let message = args
@@ -1401,25 +1629,88 @@ async fn git_run_operation(args: GitRunOperationArgs) -> RepoPilotResult<GitOper
                 .get("message")
                 .and_then(|value| value.as_str())
                 .ok_or_else(|| RepoPilotError::Git("Missing message".into()))?;
-            let id = commit_message(&repo, message)?;
-            Ok(GitOperationResult { ok: true, message: format!("Committed {}", &id.to_hex().to_string()[..7]), unsupported: None })
+            if message.trim().is_empty() {
+                return Err(RepoPilotError::Git("Commit message cannot be empty".into()));
+            }
+            let amend = args.payload.get("amend").and_then(|value| value.as_bool()).unwrap_or(false);
+            let empty = args.payload.get("empty").and_then(|value| value.as_bool()).unwrap_or(false);
+            let signed = args.payload.get("signed").and_then(|value| value.as_bool()).unwrap_or(false);
+            if signed || amend {
+                // System git handles signing and amending (including together);
+                // it commits the staged index exactly like the gix path below.
+                let mut opts = git_system::GitRunOptions {
+                    cwd: Some(root),
+                    args: vec!["commit".into()],
+                    extra_env: Vec::new(),
+                    auth: None,
+                };
+                if signed {
+                    opts.args.push("-S".into());
+                }
+                if amend {
+                    opts.args.push("--amend".into());
+                }
+                if empty {
+                    opts.args.push("--allow-empty".into());
+                }
+                opts.args.push("-m".into());
+                opts.args.push(message.to_string());
+                let output = git_system::run_git_sync(&opts)?;
+                if !output.ok() {
+                    return Ok(GitOperationResult {
+                        ok: false,
+                        message: git_system::last_error_message(&output),
+                        unsupported: None,
+                    });
+                }
+                mutated = true;
+                let sha = repo.head_commit().map_err(git_err)?.id().to_hex().to_string();
+                Ok(GitOperationResult {
+                    ok: true,
+                    message: format!("Committed {}", &sha[..7.min(sha.len())]),
+                    unsupported: None,
+                })
+            } else {
+                let id = commit_message(&repo, message)?;
+                mutated = true;
+                Ok(GitOperationResult {
+                    ok: true,
+                    message: format!("Committed {}", &id.to_hex().to_string()[..7]),
+                    unsupported: None,
+                })
+            }
         }
         "create-branch" => {
             let branch = args
                 .payload
                 .get("branch")
                 .and_then(|value| value.as_str())
+                .or_else(|| args.payload.get("name").and_then(|value| value.as_str()))
                 .ok_or_else(|| RepoPilotError::Git("Missing branch".into()))?;
-            let ref_name = format!("refs/heads/{}", branch);
-            let head_id = repo.head_commit().map_err(git_err)?.id().detach();
-            repo.reference(
-                ref_name,
-                head_id,
-                gix::refs::transaction::PreviousValue::MustNotExist,
-                gix::bstr::BString::from("create-branch"),
-            )
-            .map_err(git_err)?;
-            Ok(GitOperationResult { ok: true, message: format!("Created branch {}", branch), unsupported: None })
+            let start_point = args.payload.get("startPoint").and_then(|value| value.as_str());
+            if let Some(start_point) = start_point {
+                let opts = git_system::GitRunOptions {
+                    cwd: Some(root),
+                    args: vec!["branch".into(), branch.to_string(), start_point.to_string()],
+                    extra_env: Vec::new(),
+                    auth: None,
+                };
+                let result = run_git_op(&opts, || format!("Created branch {}", branch))?;
+                mutated = true;
+                Ok(result)
+            } else {
+                let ref_name = format!("refs/heads/{}", branch);
+                let head_id = repo.head_commit().map_err(git_err)?.id().detach();
+                repo.reference(
+                    ref_name,
+                    head_id,
+                    gix::refs::transaction::PreviousValue::MustNotExist,
+                    gix::bstr::BString::from("create-branch"),
+                )
+                .map_err(git_err)?;
+                mutated = true;
+                Ok(GitOperationResult { ok: true, message: format!("Created branch {}", branch), unsupported: None })
+            }
         }
         "delete-branch" => {
             let branch = args
@@ -1438,7 +1729,288 @@ async fn git_run_operation(args: GitRunOperationArgs) -> RepoPilotResult<GitOper
                 deref: false,
             })
             .map_err(git_err)?;
+            mutated = true;
             Ok(GitOperationResult { ok: true, message: format!("Deleted branch {}", branch), unsupported: None })
+        }
+        "rename-branch" => {
+            let old_name = args
+                .payload
+                .get("oldName")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| RepoPilotError::Git("Missing oldName".into()))?;
+            let new_name = args
+                .payload
+                .get("newName")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| RepoPilotError::Git("Missing newName".into()))?;
+            let opts = git_system::GitRunOptions {
+                cwd: Some(root),
+                args: vec!["branch".into(), "-m".into(), old_name.to_string(), new_name.to_string()],
+                extra_env: Vec::new(),
+                auth: None,
+            };
+            let result = run_git_op(&opts, || format!("Renamed {} to {}", old_name, new_name))?;
+            mutated = true;
+            Ok(result)
+        }
+        "checkout" => {
+            let branch = args
+                .payload
+                .get("branch")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| RepoPilotError::Git("Missing branch".into()))?;
+            let create = args.payload.get("create").and_then(|value| value.as_bool()).unwrap_or(false);
+            let start_point = args.payload.get("startPoint").and_then(|value| value.as_str());
+            let mut opts = git_system::GitRunOptions {
+                cwd: Some(root),
+                args: vec!["checkout".into()],
+                extra_env: Vec::new(),
+                auth: None,
+            };
+            if create {
+                opts.args.push("-b".into());
+            }
+            opts.args.push(branch.to_string());
+            if let Some(start_point) = start_point {
+                opts.args.push(start_point.to_string());
+            }
+            let result = run_git_op(&opts, || format!("Switched to {}", branch))?;
+            mutated = true;
+            Ok(result)
+        }
+        "create-tag" => {
+            let tag = args
+                .payload
+                .get("tag")
+                .and_then(|value| value.as_str())
+                .or_else(|| args.payload.get("name").and_then(|value| value.as_str()))
+                .ok_or_else(|| RepoPilotError::Git("Missing tag".into()))?;
+            let message = args.payload.get("message").and_then(|value| value.as_str());
+            let target = args.payload.get("target").and_then(|value| value.as_str());
+            let mut opts = git_system::GitRunOptions {
+                cwd: Some(root),
+                args: vec!["tag".into()],
+                extra_env: Vec::new(),
+                auth: None,
+            };
+            if let Some(message) = message {
+                opts.args.push("-a".into());
+                opts.args.push("-m".into());
+                opts.args.push(message.to_string());
+            }
+            opts.args.push(tag.to_string());
+            if let Some(target) = target {
+                opts.args.push(target.to_string());
+            }
+            let result = run_git_op(&opts, || format!("Created tag {}", tag))?;
+            mutated = true;
+            Ok(result)
+        }
+        "delete-tag" => {
+            let tag = args
+                .payload
+                .get("tag")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| RepoPilotError::Git("Missing tag".into()))?;
+            let opts = git_system::GitRunOptions {
+                cwd: Some(root),
+                args: vec!["tag".into(), "-d".into(), tag.to_string()],
+                extra_env: Vec::new(),
+                auth: None,
+            };
+            let result = run_git_op(&opts, || format!("Deleted tag {}", tag))?;
+            mutated = true;
+            Ok(result)
+        }
+        "stash" => {
+            let action = args.payload.get("action").and_then(|value| value.as_str()).unwrap_or("push");
+            let mut args_vec = vec!["stash".to_string()];
+            match action {
+                "pop" => args_vec.push("pop".to_string()),
+                "list" => args_vec.push("list".to_string()),
+                "drop" => {
+                    args_vec.push("drop".to_string());
+                    if let Some(stash) = args.payload.get("stash").and_then(|value| value.as_str()) {
+                        args_vec.push(stash.to_string());
+                    }
+                }
+                _ => {
+                    args_vec.push("push".to_string());
+                    if let Some(message) = args.payload.get("message").and_then(|value| value.as_str()) {
+                        args_vec.push("-m".to_string());
+                        args_vec.push(message.to_string());
+                    }
+                }
+            }
+            let opts = git_system::GitRunOptions {
+                cwd: Some(root),
+                args: args_vec,
+                extra_env: Vec::new(),
+                auth: None,
+            };
+            let output = git_system::run_git_sync(&opts)?;
+            if !output.ok() {
+                return Ok(GitOperationResult {
+                    ok: false,
+                    message: git_system::last_error_message(&output),
+                    unsupported: None,
+                });
+            }
+            mutated = action != "list";
+            let message = if action == "list" {
+                let list = output.stdout.trim();
+                if list.is_empty() {
+                    "No stashes".to_string()
+                } else {
+                    list.to_string()
+                }
+            } else {
+                "Stash updated".to_string()
+            };
+            Ok(GitOperationResult { ok: true, message, unsupported: None })
+        }
+        "cherry-pick" => {
+            let commit = args
+                .payload
+                .get("commit")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| RepoPilotError::Git("Missing commit".into()))?;
+            let opts = git_system::GitRunOptions {
+                cwd: Some(root),
+                args: vec!["cherry-pick".into(), commit.to_string()],
+                extra_env: Vec::new(),
+                auth: None,
+            };
+            let result = run_git_op(&opts, || format!("Cherry-picked {}", commit))?;
+            mutated = true;
+            Ok(result)
+        }
+        "revert" => {
+            let commit = args
+                .payload
+                .get("commit")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| RepoPilotError::Git("Missing commit".into()))?;
+            let opts = git_system::GitRunOptions {
+                cwd: Some(root),
+                args: vec!["revert".into(), "--no-edit".into(), commit.to_string()],
+                extra_env: Vec::new(),
+                auth: None,
+            };
+            let result = run_git_op(&opts, || format!("Reverted {}", commit))?;
+            mutated = true;
+            Ok(result)
+        }
+        "rebase" => {
+            let target = args
+                .payload
+                .get("target")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| RepoPilotError::Git("Missing target".into()))?;
+            let opts = git_system::GitRunOptions {
+                cwd: Some(root),
+                args: vec!["rebase".into(), target.to_string()],
+                extra_env: Vec::new(),
+                auth: None,
+            };
+            let result = run_git_op(&opts, || format!("Rebased onto {}", target))?;
+            mutated = true;
+            Ok(result)
+        }
+        "merge" => {
+            let branch = args
+                .payload
+                .get("branch")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| RepoPilotError::Git("Missing branch".into()))?;
+            let opts = git_system::GitRunOptions {
+                cwd: Some(root),
+                args: vec!["merge".into(), "--no-edit".into(), branch.to_string()],
+                extra_env: Vec::new(),
+                auth: None,
+            };
+            let result = run_git_op(&opts, || format!("Merged {}", branch))?;
+            mutated = true;
+            Ok(result)
+        }
+        "squash-merge" => {
+            let branch = args
+                .payload
+                .get("branch")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| RepoPilotError::Git("Missing branch".into()))?;
+            let merge_opts = git_system::GitRunOptions {
+                cwd: Some(root.clone()),
+                args: vec!["merge".into(), "--squash".into(), branch.to_string()],
+                extra_env: Vec::new(),
+                auth: None,
+            };
+            let merge_output = git_system::run_git_sync(&merge_opts)?;
+            if !merge_output.ok() {
+                return Ok(GitOperationResult {
+                    ok: false,
+                    message: git_system::last_error_message(&merge_output),
+                    unsupported: None,
+                });
+            }
+            let commit_opts = git_system::GitRunOptions {
+                cwd: Some(root),
+                args: vec!["commit".into(), "--no-edit".into()],
+                extra_env: Vec::new(),
+                auth: None,
+            };
+            let commit_output = git_system::run_git_sync(&commit_opts)?;
+            if !commit_output.ok() {
+                return Ok(GitOperationResult {
+                    ok: false,
+                    message: git_system::last_error_message(&commit_output),
+                    unsupported: None,
+                });
+            }
+            mutated = true;
+            Ok(GitOperationResult { ok: true, message: format!("Squash-merged {}", branch), unsupported: None })
+        }
+        "reset" => {
+            let mode = args.payload.get("mode").and_then(|value| value.as_str()).unwrap_or("mixed");
+            if !matches!(mode, "soft" | "mixed" | "hard") {
+                return Err(RepoPilotError::Git(format!("Unknown reset mode '{}'", mode)));
+            }
+            let target = args.payload.get("target").and_then(|value| value.as_str()).unwrap_or("HEAD");
+            let opts = git_system::GitRunOptions {
+                cwd: Some(root),
+                args: vec!["reset".into(), format!("--{}", mode), target.to_string()],
+                extra_env: Vec::new(),
+                auth: None,
+            };
+            let result = run_git_op(&opts, || format!("Reset --{} to {}", mode, target))?;
+            mutated = true;
+            Ok(result)
+        }
+        "compare-branches" => {
+            let branch = args
+                .payload
+                .get("branch")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| RepoPilotError::Git("Missing branch".into()))?;
+            let head = repo
+                .head_name()
+                .ok()
+                .flatten()
+                .map(|name| name.shorten().to_str_lossy().to_string())
+                .unwrap_or_else(|| "HEAD".to_string());
+            let base_id = resolve_commit_id(&repo, &head)?;
+            let target_id = resolve_commit_id(&repo, branch)?;
+            let ahead = count_reachable(&repo, target_id, base_id)?;
+            let behind = count_reachable(&repo, base_id, target_id)?;
+            let files = tree_changes_between(&repo, base_id, target_id)?;
+            Ok(GitOperationResult {
+                ok: true,
+                message: format!(
+                    "compare {head}..{branch}: {ahead} ahead, {behind} behind, {} file(s)",
+                    files.len()
+                ),
+                unsupported: None,
+            })
         }
         _ => Ok(GitOperationResult {
             ok: false,
@@ -1450,6 +2022,13 @@ async fn git_run_operation(args: GitRunOperationArgs) -> RepoPilotResult<GitOper
         }),
     };
 
+    if mutated {
+        if let Ok(outcome) = &result {
+            if outcome.ok {
+                emit_repo_changed(&app, &args.repo_path);
+            }
+        }
+    }
     result
 }
 
@@ -1545,11 +2124,75 @@ fn open_in_browser(url: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Emit a `git://repo-changed` event for a repository path. The frontend
+/// invalidates its `["local", ...]` queries in response.
+pub(crate) fn emit_repo_changed(app: &tauri::AppHandle, path: &str) {
+    let _ = app.emit("git://repo-changed", serde_json::json!({ "path": path }));
+}
+
+/// Backend file-watch registry: one debounced watcher, a set of watched
+/// repository roots. Stored in Tauri state (`Mutex<WatchRegistry>`).
+struct WatchRegistry {
+    debouncer: Option<notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>>,
+    watched: HashSet<PathBuf>,
+}
+
+/// Watch repository paths and emit `git://repo-changed` (debounced) when
+/// files change under them, so worktree/branch queries invalidate promptly
+/// even when the change comes from outside the app.
+#[tauri::command]
+async fn git_watch_paths(app: tauri::AppHandle, paths: Vec<String>) -> RepoPilotResult<bool> {
+    use notify::RecursiveMode;
+    use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
+    use std::time::Duration;
+
+    let state = app.state::<Mutex<WatchRegistry>>();
+    let mut registry = state.lock().unwrap();
+    if registry.debouncer.is_none() {
+        let app_for_watcher = app.clone();
+        let debouncer = new_debouncer(
+            Duration::from_millis(400),
+            move |result: DebounceEventResult| {
+                let Ok(events) = result else { return };
+                let inner = app_for_watcher.state::<Mutex<WatchRegistry>>();
+                let watched: Vec<PathBuf> = inner.lock().unwrap().watched.iter().cloned().collect();
+                let mut affected: Vec<PathBuf> = Vec::new();
+                for event in events {
+                    let path = event.path;
+                    for root in &watched {
+                        if path.starts_with(root) && !affected.contains(root) {
+                            affected.push(root.clone());
+                        }
+                    }
+                }
+                for root in affected {
+                    emit_repo_changed(&app_for_watcher, root.to_string_lossy().as_ref());
+                }
+            },
+        )
+        .map_err(|error| RepoPilotError::Git(format!("Failed to start file watcher: {error}")))?;
+        registry.debouncer = Some(debouncer);
+    }
+    for path in paths {
+        let path = PathBuf::from(path);
+        if registry.watched.insert(path.clone()) {
+            if let Some(debouncer) = registry.debouncer.as_mut() {
+                let _ = debouncer.watcher().watch(&path, RecursiveMode::Recursive);
+            }
+        }
+    }
+    Ok(true)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
+        .manage(Mutex::new(WatchRegistry {
+            debouncer: None,
+            watched: HashSet::new(),
+        }))
         .invoke_handler(tauri::generate_handler![
             credential_set,
             credential_get,
@@ -1568,6 +2211,10 @@ pub fn run() {
             git_run_in_sandbox,
             pick_repository_folder,
             open_external,
+            git_watch_paths,
+            git_system::git_clone,
+            git_system::git_git_version,
+            git_graph::git_commit_graph,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

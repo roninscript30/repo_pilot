@@ -1,10 +1,14 @@
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { Branch } from "@/domain/models/branch";
 import type { CommitDetail, CommitSummary } from "@/domain/models/commit";
 import type { FileDiff, MergePreview, RefComparison, SyncLog } from "@/domain/models/git";
-import type { FileDiffSpec, GitOperation } from "@/domain/ports/git-runtime";
+import type { CloneInput, FileDiffSpec, GitOperation } from "@/domain/ports/git-runtime";
 import { providerRegistry } from "@/providers/registry";
-import { resolveGitRuntime } from "@/services/runtime";
+import { onGitProgress, onRepoChanged, type GitProgressEvent } from "@/services/git-events";
+import { isTauriRuntime, resolveGitRuntime } from "@/services/runtime";
+import { invoke } from "@tauri-apps/api/core";
 
 function githubProvider() {
   return providerRegistry.githubProvider();
@@ -150,6 +154,84 @@ export function useRunGitOperation(path: string | null) {
       void queryClient.invalidateQueries({ queryKey: [...LOCAL_PREFIX, "commit", path] });
       void queryClient.invalidateQueries({ queryKey: [...LOCAL_PREFIX, "compare", path] });
       void queryClient.invalidateQueries({ queryKey: [...LOCAL_PREFIX, "merge-preview", path] });
+    },
+  });
+}
+
+/**
+ * Latest progress event for a backend network operation, or null when no
+ * progress has arrived. Pass the same `operationId` used by the mutation.
+ */
+export function useGitProgress(operationId: string | null) {
+  const [progress, setProgress] = useState<GitProgressEvent | null>(null);
+  useEffect(() => {
+    if (!operationId) return;
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+    void (async () => {
+      const un = await onGitProgress((event) => {
+        if (event.operationId === operationId) setProgress(event);
+      });
+      if (cancelled) un?.();
+      else unlisten = un;
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [operationId]);
+  return progress;
+}
+
+/**
+ * Keep a local repository's queries fresh: registers the path with the
+ * backend file watcher and invalidates all `["local", ...]` queries when a
+ * `git://repo-changed` event for the path arrives.
+ */
+export function useRepoChanged(path: string | null, onChanged?: () => void) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!path) return;
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+    if (isTauriRuntime()) {
+      // Register with the backend watcher (idempotent by path).
+      void invoke("git_watch_paths", { paths: [path] }).catch(() => undefined);
+    }
+    void (async () => {
+      const un = await onRepoChanged((event) => {
+        if (event.path !== path) return;
+        void queryClient.invalidateQueries({ queryKey: ["local"] });
+        onChanged?.();
+      });
+      if (cancelled) un?.();
+      else unlisten = un;
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [path, onChanged, queryClient]);
+}
+
+/** System-git availability (desktop) / absence (browser preview). */
+export function useGitVersion() {
+  return useQuery({
+    queryKey: [...LOCAL_PREFIX, "git-version"],
+    queryFn: () => resolveGitRuntime().getGitVersion(),
+    staleTime: 60_000,
+  });
+}
+
+/** Clone a repository into a folder; invalidates local queries on success. */
+export function useCloneRepository() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CloneInput) => resolveGitRuntime().cloneRepository(input),
+    onSuccess: (outcome) => {
+      if (outcome.ok) {
+        void queryClient.invalidateQueries({ queryKey: ["local"] });
+      }
     },
   });
 }

@@ -3,10 +3,12 @@ import type { Branch } from "@/domain/models/branch";
 import type { CommitDetail, CommitSummary } from "@/domain/models/commit";
 import type { FileDiff, MergePreview, RefComparison, SyncLog } from "@/domain/models/git";
 import type {
+  CloneInput,
   FileDiffSpec,
   GitOperation,
   GitOperationResult,
   GitRuntime,
+  GitVersion,
   WorktreeStatus,
 } from "@/domain/ports/git-runtime";
 
@@ -75,6 +77,25 @@ export class TauriGitRuntime implements GitRuntime {
   async getSyncLog(path: string): Promise<SyncLog> {
     this.guard();
     return invoke<SyncLog>("git_sync_log", { path });
+  }
+
+  async cloneRepository(input: CloneInput): Promise<GitOperationResult> {
+    this.guard();
+    // Build args without undefined keys (`exactOptionalPropertyTypes`).
+    const args: Record<string, unknown> = {
+      url: input.url,
+      targetDir: input.targetDir,
+      operationId: input.operationId,
+    };
+    if (input.depth !== undefined) args.depth = input.depth;
+    if (input.branch !== undefined) args.branch = input.branch;
+    if (input.accountLogin !== undefined) args.accountLogin = input.accountLogin;
+    return invoke<GitOperationResult>("git_clone", { args });
+  }
+
+  async getGitVersion(): Promise<GitVersion> {
+    this.guard();
+    return invoke<GitVersion>("git_git_version");
   }
 
   async run(
