@@ -11,6 +11,8 @@ export interface LocalRepository {
   readonly pinned: boolean;
   readonly addedAt: string;
   readonly lastOpenedAt: string;
+  /** Remote name → account login used to authenticate network operations. */
+  readonly accountLogins: Readonly<Record<string, string>>;
 }
 
 interface LocalReposState {
@@ -25,22 +27,34 @@ interface LocalReposState {
   touch(path: string): void;
   /** Link or unlink a remote repository full name for a tracked path. */
   link(path: string, fullName: string | null): void;
+  /** Remember which account authenticates a remote (e.g. "origin"). */
+  setAccountLogin(path: string, remote: string, accountLogin: string): void;
 }
 
 function loadRepositories(): LocalRepository[] {
   const stored = loadPreference<unknown>(STORAGE_KEY, []);
   if (!Array.isArray(stored)) return [];
-  return stored.filter((entry): entry is LocalRepository => {
-    if (entry === null || typeof entry !== "object") return false;
-    const candidate = entry as Partial<LocalRepository>;
-    return (
-      typeof candidate.path === "string" &&
-      (candidate.fullName === null || typeof candidate.fullName === "string") &&
-      typeof candidate.pinned === "boolean" &&
-      typeof candidate.addedAt === "string" &&
-      typeof candidate.lastOpenedAt === "string"
-    );
-  });
+  return stored
+    .filter((entry): entry is Partial<LocalRepository> => {
+      if (entry === null || typeof entry !== "object") return false;
+      const candidate = entry as Partial<LocalRepository>;
+      return (
+        typeof candidate.path === "string" &&
+        (candidate.fullName === null || typeof candidate.fullName === "string") &&
+        typeof candidate.pinned === "boolean" &&
+        typeof candidate.addedAt === "string" &&
+        typeof candidate.lastOpenedAt === "string"
+      );
+    })
+    .map((candidate) => ({
+      path: candidate.path!,
+      fullName: candidate.fullName ?? null,
+      pinned: candidate.pinned!,
+      addedAt: candidate.addedAt!,
+      lastOpenedAt: candidate.lastOpenedAt!,
+      // Older entries predate per-remote account mapping; default to none.
+      accountLogins: candidate.accountLogins ?? {},
+    }));
 }
 
 function nowIso(): string {
@@ -69,6 +83,7 @@ export const useLocalReposStore = create<LocalReposState>()((set, get) => ({
       pinned: false,
       addedAt: nowIso(),
       lastOpenedAt: nowIso(),
+      accountLogins: {},
     };
     const next = [...repositories, entry];
     savePreference(STORAGE_KEY, next);
@@ -101,6 +116,16 @@ export const useLocalReposStore = create<LocalReposState>()((set, get) => ({
   link(path: string, fullName: string | null) {
     const next = get().repositories.map((entry) =>
       entry.path === path ? { ...entry, fullName } : entry,
+    );
+    savePreference(STORAGE_KEY, next);
+    set({ repositories: next });
+  },
+
+  setAccountLogin(path: string, remote: string, accountLogin: string) {
+    const next = get().repositories.map((entry) =>
+      entry.path === path
+        ? { ...entry, accountLogins: { ...entry.accountLogins, [remote]: accountLogin } }
+        : entry,
     );
     savePreference(STORAGE_KEY, next);
     set({ repositories: next });

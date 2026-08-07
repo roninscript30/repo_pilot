@@ -5,9 +5,9 @@ import { Card, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Icon } from "@/components/ui/Icon";
 import { Spinner } from "@/components/ui/Spinner";
-import { TextArea } from "@/components/ui/TextArea";
 import { useToast } from "@/components/ui/toast-context";
 import { DiffViewer } from "@/features/git/components/DiffViewer";
+import { CommitCenter } from "@/features/worktree/components/CommitCenter";
 import {
   useFileDiff,
   useLocalWorktree,
@@ -61,13 +61,10 @@ export function WorktreeView({ path }: WorktreeViewProps) {
 
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [diffPath, setDiffPath] = useState<string | null>(null);
-  const [draftMessage, setDraftMessage] = useState("");
-  const [amend, setAmend] = useState(false);
 
   const diffSpec = diffSpecFor(status, diffPath);
   const diff = useFileDiff(path, diffSpec);
 
-  const stagedCount = status?.staged.length ?? 0;
   const selectedList = [...selected];
 
   function execute(operation: GitOperation, payload?: Record<string, unknown>) {
@@ -80,7 +77,6 @@ export function WorktreeView({ path }: WorktreeViewProps) {
         );
         if (outcome.ok) {
           setSelected(new Set());
-          if (operation === "commit") setDraftMessage("");
         }
       },
     });
@@ -212,44 +208,13 @@ export function WorktreeView({ path }: WorktreeViewProps) {
             </div>
           </Card>
 
-          <Card>
-            <CardHeader
-              title={amend ? "Amend commit" : "Commit"}
-              subtitle={
-                stagedCount > 0
-                  ? `${stagedCount} file${stagedCount === 1 ? "" : "s"} staged`
-                  : "Nothing staged"
-              }
-            />
-            <div className="space-y-3 p-3">
-              <TextArea
-                label="Message"
-                placeholder="Summarize the change"
-                value={draftMessage}
-                onChange={(event) => setDraftMessage(event.target.value)}
-                rows={3}
-              />
-              <div className="flex items-center justify-between gap-2">
-                <label className="flex items-center gap-1.5 text-2xs text-surface-500">
-                  <input
-                    type="checkbox"
-                    checked={amend}
-                    onChange={(event) => setAmend(event.target.checked)}
-                    className="accent-accent-500"
-                  />
-                  Amend last commit
-                </label>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={stagedCount === 0 || draftMessage.trim().length === 0 || run.isPending}
-                  onClick={() => execute("commit", { message: draftMessage, amend })}
-                >
-                  {run.isPending ? "Committing…" : "Commit"}
-                </Button>
-              </div>
-            </div>
-          </Card>
+          <CommitCenter
+            path={path}
+            status={status}
+            run={run}
+            onCommitted={() => setSelected(new Set())}
+            onInspectFile={(filePath) => setDiffPath(filePath)}
+          />
         </div>
 
         <Card>

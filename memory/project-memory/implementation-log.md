@@ -17,6 +17,17 @@ This log records meaningful project progress in chronological order.
   - Tests: 105 Vitest (11 files; added auth-store multi-account cases + device-flow unit tests), 9 Playwright e2e (added device-flow sign-in-path test). All gates green.
 - Fixed `[vite:css] @import must precede all other statements` warning: moved the highlight.js `@import` to the top of `frontend/src/index.css`, before the `@tailwind` directives.
 
+## 2026-08-07 (Phase 1.5 Slice 3 — Commit center + Sync center)
+
+- **Rust `commit_to_detail` stats/patch fix**: rewritten against the pinned gix 0.68 API — walk `repo.diff_tree_to_tree(parent_tree, Some(tree), None)`, map `ChangeDetached` variants (Addition/Deletion/Modification/Rewrite incl. `copy`) to per-file stats via `line_stats` (Myers `blob::diff`), render a git-format `patch` from `render_unified_patch` so the existing frontend `splitPatchByFile`/`parseUnifiedDiff` parsers work unchanged. Root commits (no parent) diff against the empty tree → all files counted as additions. Added `init_two_commit_repo` fixture + 2 Rust tests (`commit_detail_reports_stats_and_patch`, `root_commit_detail_counts_all_files_as_additions`); Rust tests now 10.
+- **Commit op routing**: `git_run_operation` routes "commit" to system git when `signed || amend || empty` (added `empty`, i.e. `--allow-empty`), else gix for the plain path.
+- **Commit templates + validation** (`features/worktree/lib/commit.ts` + 9 tests): `validateCommitMessage` (empty / subject > 72 chars / WIP patterns), persisted templates in user-preferences (`commit.templates`) with load/save/remove.
+- **`CommitCenter`** (`features/worktree/components/CommitCenter.tsx`): owns commit state (message, amend/empty/signed toggles, templates), live staged preview with per-file `+a −d`, Commit / Commit & Push / Commit & Sync via sequential `run.mutateAsync`, progress via `useGitProgress("git-run-operation")`. `remoteNameFor` extracted to `features/git/lib/remotes.ts` (keeps the file component-only for react-refresh).
+- **`SyncCenter` rewrite**: full branch status (current/tracking/remote, ahead/behind, divergence), per-remote account picker backed by new `LocalRepository.accountLogins` + `setAccountLogin` in `features/local/store.ts` (older entries normalized to `{}`), set-upstream push, Fetch/Pull/Push/Sync/Refresh/Compare, sync-log last times, progress events.
+- **`CommitsExplorer`** (renamed from `CommitsTab`): branch filter synced to the working-tree branch for local repos, sha/subject/message search, "Load more" pagination, local vs remote commit modes; `CommitInspector` gained a `localPath` mode (both detail hooks always called, one enabled — rules of hooks).
+- `RepositoryWorkspace` wires `CommitsExplorer` with `localPath` and `SyncCenter` with `onCompare → compare` activity.
+- Tests: 135 Vitest (16 files; added `features/worktree/lib/commit.test.ts` + `features/local/store.test.ts` for `accountLogins`), 10 Playwright e2e, 10 Rust. All gates green (typecheck, lint 0 warnings, build, cargo check/clippy/fmt, cargo test).
+
 ## 2026-08-06
 
 - Initialized `memory/` as the project knowledge base and AI memory system.

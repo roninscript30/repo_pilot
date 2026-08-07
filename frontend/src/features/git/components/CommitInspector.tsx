@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useCommitDetail } from "@/features/git/hooks";
+import { useCommitDetail, useLocalCommitDetail } from "@/features/git/hooks";
 import { shortSha, type CommitSummary } from "@/domain/models/commit";
 import { splitPatchByFile } from "@/lib/diff";
 import { timeAgo, formatDate } from "@/lib/format";
@@ -22,12 +22,17 @@ const STATUS_ICON: Record<string, "plus" | "trash" | "pencil" | "gitCompare"> = 
 interface CommitInspectorProps {
   readonly fullName: string;
   readonly commit: CommitSummary;
+  /** When set, reads the commit from the local Git runtime instead of GitHub. */
+  readonly localPath?: string | null;
 }
 
 /** Detail panel for a single commit: metadata, file stats, and diffs. */
-export function CommitInspector({ fullName, commit }: CommitInspectorProps) {
+export function CommitInspector({ fullName, commit, localPath = null }: CommitInspectorProps) {
   const { toast } = useToast();
-  const detail = useCommitDetail(fullName, commit.sha);
+  // Both hooks are always called (rules of hooks); only one is enabled.
+  const localDetail = useLocalCommitDetail(localPath, commit.sha, localPath != null);
+  const remoteDetail = useCommitDetail(fullName, commit.sha, localPath == null);
+  const detail = localPath ? localDetail : remoteDetail;
 
   const fileDiffs = useMemo(() => {
     if (!detail.data?.patch) return [];

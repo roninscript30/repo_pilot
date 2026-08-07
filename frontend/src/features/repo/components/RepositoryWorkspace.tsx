@@ -15,7 +15,7 @@ import {
   type RepoActivity,
 } from "@/features/repo/lib/activity";
 import { CodeWorkspace } from "@/features/code/CodeWorkspace";
-import { CommitsTab } from "@/features/git/components/CommitsExplorer";
+import { CommitsExplorer } from "@/features/git/components/CommitsExplorer";
 import { PullsTab } from "@/features/pulls/PullsTab";
 import { IssuesTab } from "@/features/issues/IssuesTab";
 import { ReleasesTab } from "@/features/releases/ReleasesTab";
@@ -130,7 +130,11 @@ export function RepositoryWorkspace() {
             />
           ) : activity === "commits" ? (
             <div className="px-6 py-5">
-              <CommitsTab fullName={repository.fullName} defaultBranch={repository.defaultBranch} />
+              <CommitsExplorer
+                fullName={repository.fullName}
+                defaultBranch={repository.defaultBranch}
+                localPath={localEntry?.path ?? null}
+              />
             </div>
           ) : activity === "pulls" ? (
             <div className="px-6 py-5">
@@ -150,7 +154,7 @@ export function RepositoryWorkspace() {
             </LocalRepoGate>
           ) : activity === "sync" ? (
             <LocalRepoGate fullName={repository.fullName}>
-              {(path) => <SyncCenter path={path} />}
+              {(path) => <SyncCenter path={path} onCompare={() => selectActivity("compare")} />}
             </LocalRepoGate>
           ) : activity === "branches" ? (
             <LocalRepoGate fullName={repository.fullName}>

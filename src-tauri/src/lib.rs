@@ -839,6 +839,8 @@ fn commit_to_summary(commit: &gix::Commit<'_>) -> RepoPilotResult<CommitSummary>
 }
 
 fn commit_to_detail(repo: &Repository, commit: &gix::Commit<'_>) -> RepoPilotResult<CommitDetail> {
+    use gix::object::tree::diff::ChangeDetached;
+
     let summary = commit_to_summary(commit)?;
 
     let tree = commit.tree().map_err(git_err)?;
@@ -852,31 +854,61 @@ fn commit_to_detail(repo: &Repository, commit: &gix::Commit<'_>) -> RepoPilotRes
         .transpose()?;
 
     let mut changes = Vec::new();
+    let mut additions_total = 0u32;
+    let mut deletions_total = 0u32;
+    let mut patch_parts: Vec<String> = Vec::new();
+
     for change in repo
         .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)
         .map_err(git_err)?
     {
-        use gix::object::tree::diff::ChangeDetached;
         let path = String::from_utf8_lossy(change.location().as_ref()).to_string();
-        let status = match change {
-            ChangeDetached::Addition { .. } => "added",
-            ChangeDetached::Deletion { .. } => "removed",
-            ChangeDetached::Modification { .. } => "modified",
-            ChangeDetached::Rewrite { copy, .. } => {
-                if copy {
-                    "added"
-                } else {
-                    "renamed"
-                }
-            }
+        let (before_id, after_id, status) = match &change {
+            ChangeDetached::Addition { id, .. } => (None, Some(*id), "added"),
+            ChangeDetached::Deletion { id, .. } => (Some(*id), None, "removed"),
+            ChangeDetached::Modification {
+                previous_id, id, ..
+            } => (Some(*previous_id), Some(*id), "modified"),
+            ChangeDetached::Rewrite {
+                source_id,
+                id,
+                copy,
+                ..
+            } => (
+                Some(*source_id),
+                Some(*id),
+                if *copy { "added" } else { "renamed" },
+            ),
         };
+        let before = before_id
+            .map(|id| read_blob_bytes(repo, id).unwrap_or_default())
+            .unwrap_or_default();
+        let after = after_id
+            .map(|id| read_blob_bytes(repo, id).unwrap_or_default())
+            .unwrap_or_default();
+        let (additions, deletions) = line_stats(&before, &after);
+        if let Some(patch) = render_unified_patch(&before, &after) {
+            if !patch.is_empty() {
+                patch_parts.push(format!(
+                    "diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n{patch}"
+                ));
+            }
+        }
+        additions_total += additions;
+        deletions_total += deletions;
         changes.push(CommitFileChange {
             filename: path,
             status: status.to_string(),
-            additions: 0,
-            deletions: 0,
+            additions,
+            deletions,
         });
     }
+
+    let patch = if patch_parts.is_empty() {
+        None
+    } else {
+        Some(patch_parts.join("\n"))
+    };
 
     Ok(CommitDetail {
         sha: summary.sha,
@@ -890,9 +922,9 @@ fn commit_to_detail(repo: &Repository, commit: &gix::Commit<'_>) -> RepoPilotRes
             .map(|parent| parent.to_hex().to_string())
             .collect(),
         changes,
-        additions: 0,
-        deletions: 0,
-        patch: None,
+        additions: additions_total,
+        deletions: deletions_total,
+        patch,
     })
 }
 
@@ -1635,9 +1667,10 @@ async fn git_run_operation(
             let amend = args.payload.get("amend").and_then(|value| value.as_bool()).unwrap_or(false);
             let empty = args.payload.get("empty").and_then(|value| value.as_bool()).unwrap_or(false);
             let signed = args.payload.get("signed").and_then(|value| value.as_bool()).unwrap_or(false);
-            if signed || amend {
-                // System git handles signing and amending (including together);
-                // it commits the staged index exactly like the gix path below.
+            if signed || amend || empty {
+                // System git handles signing, amending, and empty commits
+                // (including combinations); it commits the staged index
+                // exactly like the gix path below.
                 let mut opts = git_system::GitRunOptions {
                     cwd: Some(root),
                     args: vec!["commit".into()],
@@ -2218,4 +2251,90 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a two-commit fixture with system git: the second commit edits a
+    /// line in `a.txt` and adds `b.txt`. Returns false when git is unavailable
+    /// so the test can skip.
+    fn init_two_commit_repo(path: &std::path::Path) -> bool {
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(path)
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false)
+        };
+        if !run(&["init", "-q"]) {
+            return false;
+        }
+        if !run(&["config", "user.email", "test@example.com"])
+            || !run(&["config", "user.name", "Test"])
+        {
+            return false;
+        }
+        std::fs::write(path.join("a.txt"), "one\ntwo\nthree\n").expect("write a.txt");
+        if !run(&["add", "-A"]) || !run(&["commit", "-q", "-m", "first"]) {
+            return false;
+        }
+        std::fs::write(path.join("a.txt"), "one\ntwo changed\nthree\n").expect("rewrite a.txt");
+        std::fs::write(path.join("b.txt"), "hello\n").expect("write b.txt");
+        if !run(&["add", "-A"]) || !run(&["commit", "-q", "-m", "second"]) {
+            return false;
+        }
+        true
+    }
+
+    #[test]
+    fn commit_detail_reports_stats_and_patch() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        if !init_two_commit_repo(temp.path()) {
+            eprintln!("skipping: git not available");
+            return;
+        }
+        let repo = open_repo(temp.path().to_str().unwrap()).expect("open repo");
+        let head = repo.head_commit().expect("head commit");
+        let detail = commit_to_detail(&repo, &head).expect("commit detail");
+
+        // a.txt loses one line and gains another; b.txt is a one-line addition.
+        assert_eq!(detail.additions, 2, "additions = a.txt edit + b.txt add");
+        assert_eq!(detail.deletions, 1, "deletions = the replaced line");
+        assert_eq!(detail.changes.len(), 2, "both files appear in changes");
+        assert!(detail.parents.len() == 1, "second commit has one parent");
+
+        let patch = detail.patch.expect("text patch should be generated");
+        assert!(patch.contains("diff --git a/a.txt b/a.txt"));
+        assert!(patch.contains("diff --git a/b.txt b/b.txt"));
+        assert!(patch.contains("-two"));
+        assert!(patch.contains("+two changed"));
+        assert!(patch.contains("+hello"));
+    }
+
+    #[test]
+    fn root_commit_detail_counts_all_files_as_additions() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        if !init_two_commit_repo(temp.path()) {
+            eprintln!("skipping: git not available");
+            return;
+        }
+        let repo = open_repo(temp.path().to_str().unwrap()).expect("open repo");
+        let mut commits = Vec::new();
+        for info in repo
+            .rev_walk([repo.head_id().expect("head id")])
+            .all()
+            .expect("walk")
+        {
+            commits.push(info.expect("walk item").id);
+        }
+        let root = *commits.last().expect("root commit");
+        let detail =
+            commit_to_detail(&repo, &repo.find_commit(root).expect("find root")).expect("detail");
+        assert!(detail.parents.is_empty(), "root commit has no parents");
+        assert!(detail.additions > 0, "root commit reports additions");
+        assert_eq!(detail.deletions, 0, "root commit reports no deletions");
+    }
 }
