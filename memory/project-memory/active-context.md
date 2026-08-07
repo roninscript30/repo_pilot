@@ -2,31 +2,33 @@
 
 Status: Active
 Owner: Project Maintainers
-Last Updated: 2026-08-06
+Last Updated: 2026-08-07
 
 ## Current Focus
 
-The Phase 1 UI/UX build is complete: the full design system, app shell, first-run onboarding, dashboard, repository browser, and the tabbed repository workspace (overview, code explorer, commit graph, unified diffs, pulls, issues, releases) are implemented and all quality gates are green. Remaining known work: the initial application commit, local Git operation coverage in the Rust shell, and interactive desktop verification.
+The application was refactored into a feature-module Repository IDE: a feature-module architecture, a VS Code-style workspace shell, a `/repo/:owner/:name/:activity` repository workspace wired to the Git engine (working tree, sync, branches, compare), and a settings page. The Rust GitEngine was expanded with diff/compare/merge-preview/sync-log commands and a native folder-picker command. All TS gates, unit tests, e2e, and `cargo check`/`clippy -D warnings` are green. Known remaining work: committing the feature-module refactor (it is staged/uncommitted on top of the initial application commit `b2cd37b`), interactive desktop verification, and the still-`unsupported` push/pull/fetch operations.
 
 ## Product Name Note
 
-The repository and remote are named `repo_pilot`. The product display name is **GitOS** per the master specification. Display name is configurable; repository identity stays `repo_pilot`.
+The repository and remote are named `repo_pilot`. The product display name is **Repo Pilot** per the master specification. Display name is configurable; repository identity stays `repo_pilot`.
 
 ## Current Repository State
 
-- Frontend complete: Tailwind token layer + ~40-component UI kit, app shell (NavRail/RepositorySidebar/AccountMenu/ContextPanel/StatusBar/NotificationCenter/CommandPalette/GlobalSearch), onboarding gate (8 steps, ADR-0008), dashboard, repository browser, tabbed repository workspace (overview/code/commits/pulls/issues/releases).
-- Code explorer renders markdown safely (ADR-0009) and code with line numbers; commit graph + inspector and unified diff viewer cover history; pulls/issues/releases manage collaboration; sandbox and local repos pages surface the GitRuntime seam.
-- Hooks layer (TanStack Query) per domain: use-repositories/use-dashboard/use-code/use-git/use-pulls/use-issues/use-releases/use-account; pure lib modules (diff, commit-graph, files, format, fuzzy, repository-health, clone-url) are unit-tested.
-- Storage: user-preferences service (`gitos:preferences` in browser localStorage, keyring on desktop) backs onboarding flag, favorites ("favorite-repositories"), recent searches; credentials stay in memory in browser preview (ADR-0005).
-- All quality gates green: `npm run typecheck`, `npm run lint`, `npm run build` (~4.7s), 94 Vitest unit tests (10 files), 8 Playwright e2e tests (onboarding walkthrough, returning-user sign-in, local repos), plus the previously verified cargo clippy/fmt and desktop build.
-- Docker image `gitos` serves the browser preview on port 4173; GitHub Actions CI covers frontend, e2e, and desktop shell.
-- NOTE: the git repository still contains only the initial memory commit; all application code, tests, CI, and Docker files are untracked and awaiting the initial commit.
+- App architecture: feature-module migration complete. Each domain lives under `src/features/<name>/` with its own `components/`, `hooks.ts`/`lib/`, and `services/`; shared UI in `src/components/ui/`; cross-cutting services in `src/services/`. Shell is a VS Code-style `AppShell` (NavRail + tabbed workspace shell) with `RequireAuth` + onboarding gate (ADR-0008) in `src/App.tsx`.
+- Routing: `/dashboard`, `/repositories`, `/repo/:owner/:name/:activity?` (the repository workspace), `/sandbox`, `/local`, `/settings`, plus root redirect to `/dashboard` and a `*` fallback. Navigation helpers `repoWorkspacePath(owner, name, activity?)` and `repoWorkspacePathForFullName(fullName, activity?)` in `src/features/workspace/lib/tabs.ts` are the single source for repo links.
+- Repository workspace (`RepositoryWorkspace.tsx`) maps the 11 activities (overview/code/commits/worktree/branches/sync/compare/pulls/issues/releases/settings) with a vertical `RepoActivityRail`, a `WorkspaceHeader` (identity, favorite, clone, link, local-path badge) and a `LocalRepoGate` that links a local copy (native folder picker via `pick_repository_folder`; browser shows a hint + link to `/local`).
+- Git-engine activities are fully wired through the GitRuntime seam: `WorktreeView` (staged/unstaged/untracked/ignored grouping, stage/unstage/restore/discard, commit + amend, per-file `useFileDiff` with DiffViewer), `SyncCenter` (fetch/pull/push + sync log), `BranchExplorer` (create/checkout/rename/delete + per-branch history), `CompareView` (base/target compare summary + merge preview).
+- Settings page: account, appearance (theme segmented control), runtime engine badge, workspace cleanup, forget local repos, sign-out dialog.
+- Rust GitEngine (gix 0.68.0) commands: credential commands, `git_open_repository`, `git_worktree_status` (full shape: staged/unstaged/untracked/ignored + per-file stats + tracking ahead/behind), `git_list_branches`, `git_list_commits`, `git_get_commit`, `git_file_diff` (HEAD/index vs index/worktree with unified patch), `git_compare_refs`, `git_merge_preview`, `git_sync_log` (reflog-derived fetch/pull/push timestamps), `git_run_operation` (stage/unstage/commit/create-branch/delete-branch; push/pull/fetch/restore/checkout/rename-branch/cherry-pick/revert/reset/tag/stash/compare-branches remain `unsupported`), `git_run_in_sandbox` (commit only), and `pick_repository_folder` (tauri-plugin-dialog, `dialog:default` capability added).
+- Storage: user-preferences service (`repoPilot:preferences` in browser localStorage, keyring on desktop) backs onboarding flag, favorites, recent searches; local-repos link map in `useLocalReposStore` (localStorage on desktop); credentials in memory in browser preview (ADR-0005).
+- All quality gates green: `npm run typecheck`, `npm run lint` (0 warnings), `npm run build` (1.41 MB JS bundle, size-warning only), 94 Vitest unit tests (10 files), 8 Playwright e2e tests, `cargo check` and `cargo clippy --all-targets -- -D warnings` clean.
+- NOTE: the initial application commit is in (`b2cd37b` "initial application: GitOS Phase 1 UI/UX build"). On top of it, the feature-module Repository IDE refactor — rename moves, the AppShell workspace, Git-engine activities, the GitEngine expansion, and ADRs 0010/0011 — is staged/uncommitted and awaiting its own commit.
 
 ## Near-Term Priorities
 
-- Commit the initial application tree (first real commit).
+- Commit the feature-module Repository IDE refactor — the refactor, Git-engine workspaces, and GitEngine expansion are staged/uncommitted on top of the initial application commit (`b2cd37b`).
+- Interactive desktop verification (`npm run tauri dev` run through the UI, including the native folder picker and the new diff/compare/preview commands; binary builds already verified).
 - Continue Phase 1 local Git operations: implement push/pull/fetch and the remaining GitRuntime operations in lib.rs (currently `unsupported`).
-- Interactive desktop verification (`npm run tauri dev` run through the UI; binary builds already verified).
 - Provider roadmap: GitLab/Gitea/Forgejo behind the Provider port (listed as "Soon" in onboarding), OAuth device flow.
 
 ## Important Context For Future Agents
@@ -35,11 +37,12 @@ The repository and remote are named `repo_pilot`. The product display name is **
 - Preserve the broader platform vision (multi-provider, sandbox, intelligence, plugins).
 - All provider calls flow through the `Provider` port; no UI imports provider-specific types.
 - Secrets: OS keyring on desktop, in-memory only in browser preview. Never localStorage. Non-secret preferences (onboarding, favorites, recent searches) go through user-preferences.
-- First-run onboarding gates the whole app at `App.tsx` before auth; e2e specs must either walk it or seed `gitos:preferences` -> `onboarding-completed`.
+- First-run onboarding gates the whole app at `App.tsx` before auth; e2e specs must either walk it or seed `repoPilot:preferences` -> `onboarding-completed`.
 - TypeScript strict with `exactOptionalPropertyTypes`: never pass `undefined` for optional props (e.g. pass `{ limit }` only when the value is defined).
 - No dynamic Tailwind class construction (lint/build fail); use static class maps for statuses/tone.
 - Markdown uses `marked.use({ renderer })` at module level (a `RendererObject` is not accepted via `MarkedOptions.renderer`); raw HTML is escaped before parse (ADR-0009).
 - `CommitSummary.parents` exists specifically to power the commit graph lane algorithm.
 - The Rust shell is pinned to gix 0.68.0: consult the vendored source before using new APIs (many newer-gix idioms do not exist here). The session cheat-sheet for the working gix 0.68 API surface is recorded in the implementation log.
-- Tauri commands marshal camelCase (serde rename_all) matching the TS contract; args structs are separate from response structs.
+- Tauri commands marshal camelCase (serde rename_all) matching the TS contract; args structs are separate from response structs. `repo.merge_base()` returns an attached `Id` — detach with `.detach()` before treating it as an `ObjectId`; tree/commit walkers yield per-item `Result` (map each element); `gix::object::tree::diff::Change` `location()`, `id()`, `diff(&mut cache)`, and Rewrite `copy` are accessors / a plain bool (no `*copy`).
+- UI kit constraints: `Button` sizes are only `sm|md` (no `xs`; use `sm`) with variants `primary|secondary|ghost|danger`; `CardHeader` accepts an `action` ReactNode; `SearchInput` `onChange(value: string)`; the icon set has no `spinner` — use `refresh` for busy/picking states.
 - Keep the knowledge base simple and maintained; update memory after meaningful work.

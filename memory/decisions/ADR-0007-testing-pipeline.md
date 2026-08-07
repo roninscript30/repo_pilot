@@ -5,7 +5,7 @@ Date: 2026-08-06
 
 ## Context
 
-GitOS must ship production-grade quality. The specification requires unit, integration, UI, and end-to-end tests, with CI running automatically.
+Repo Pilot must ship production-grade quality. The specification requires unit, integration, UI, and end-to-end tests, with CI running automatically.
 
 ## Decision
 

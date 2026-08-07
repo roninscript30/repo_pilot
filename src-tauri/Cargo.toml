@@ -1,11 +1,11 @@
 [package]
-name = "gitos"
+name = "repo-pilot"
 version = "0.1.0"
-description = "GitOS - open-source, desktop-first Repository Operating Platform"
+description = "Repo Pilot - open-source, desktop-first Repository Operating Platform"
 edition = "2021"
 
 [lib]
-name = "gitos_lib"
+name = "repo_pilot"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

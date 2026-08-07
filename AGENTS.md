@@ -10,7 +10,7 @@ AI agents are engineering contributors to Repo Pilot. Every agent must preserve 
 
 Read these files before making meaningful changes:
 
-- `memory/README.md`
+- `memory/index.md`
 - `memory/rules.md`
 - `memory/vision.md`
 - `memory/architecture.md`

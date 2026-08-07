@@ -5,7 +5,7 @@ Date: 2026-08-06
 
 ## Context
 
-Repo Pilot (product name: GitOS) will support GitHub, GitLab, Forgejo, Gitea, Bitbucket, and Azure DevOps over time. Provider-specific logic must not leak throughout the application (engineering rule: "Provider-specific logic must not leak throughout the app").
+Repo Pilot (product name: Repo Pilot) will support GitHub, GitLab, Forgejo, Gitea, Bitbucket, and Azure DevOps over time. Provider-specific logic must not leak throughout the application (engineering rule: "Provider-specific logic must not leak throughout the app").
 
 ## Decision
 

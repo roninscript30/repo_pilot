@@ -2,11 +2,11 @@
 
 Status: Active
 Owner: Project Maintainers
-Last Updated: 2026-08-06
+Last Updated: 2026-08-07
 
 This roadmap is directional. It should evolve as architecture and implementation mature.
 
-It is organized around the GitOS product specification phases and updated after each meaningful implementation slice.
+It is organized around the Repo Pilot product specification phases and updated after each meaningful implementation slice.
 
 ## Phase 0: Foundation (Complete)
 
@@ -28,10 +28,11 @@ It is organized around the GitOS product specification phases and updated after 
 
 - Repository browsing (available in browser and desktop)
 - Repository overview (available in browser and desktop)
-- Branch management (list/create/delete in Rust shell; compare pending)
+- Branch management (list/create/delete in Rust shell; compare + merge preview via `git_compare_refs` / `git_merge_preview`)
 - Commit history (list/get in Rust shell; patch and line counts pending)
-- Local repository metadata (worktree status: staged, unstaged, untracked, ahead/behind)
-- Git operations surface (commit, stage, unstage available; push, pull, fetch, restore, checkout, rename-branch, cherry-pick, revert, reset, tag, stash, compare-branches pending) behind the GitRuntime seam
+- Local repository metadata (worktree status: staged, unstaged, untracked, ignored, ahead/behind)
+- Repository workspace (`/repo/:owner/:name/:activity`) with Git-engine activities — working tree, sync, branches, compare — available
+- Git operations surface (stage, unstage, commit, create/delete branch available; file diff, ref compare, merge preview, sync log via dedicated commands; push, pull, fetch, restore, checkout, rename-branch, cherry-pick, revert, reset, tag, stash pending) behind the GitRuntime seam
 - Authentication: GitHub fine-grained PAT flow (available)
 - OAuth device flow (deferred follow-up)
 

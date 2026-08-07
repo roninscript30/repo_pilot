@@ -5,7 +5,7 @@ Date: 2026-08-06
 
 ## Context
 
-Repo Pilot (product name: GitOS) is at project initialization. The application stack has not been selected. The product specification requires a desktop-first Repository Operating Platform with a React frontend and a Rust backend.
+Repo Pilot (product name: Repo Pilot) is at project initialization. The application stack has not been selected. The product specification requires a desktop-first Repository Operating Platform with a React frontend and a Rust backend.
 
 ## Decision
 

@@ -2,11 +2,11 @@
 
 Status: Active
 Owner: Project Maintainers
-Last Updated: 2026-08-06
+Last Updated: 2026-08-07
 
 ## Current Stage
 
-Phase 0 foundation complete; Phase 1 UI/UX build complete (design system, shell, onboarding, dashboard, browser, tabbed repository workspace). Next: initial application commit, local Git operation coverage, desktop verification.
+Phase 0 foundation complete; Phase 1 UI/UX build complete (initial application commit `b2cd37b`); feature-module Repository IDE refactor complete (workspace shell, `/repo/:owner/:name/:activity` repository workspace with Git-engine activities, settings page) but staged/uncommitted on top of it. Next: commit the refactor, push/pull/fetch coverage, desktop verification.
 
 ## Completed
 
@@ -25,26 +25,31 @@ Phase 0 foundation complete; Phase 1 UI/UX build complete (design system, shell,
 - Sandbox and Local Repos pages on the design system; GitRuntime seam intact (gix on desktop, web-fallback messaging in browser).
 - Rust/Tauri shell: credential commands (keyring + account index sidecar) and git commands on gix 0.68.0; desktop build verified (`npm run tauri build --no-bundle`, clippy/fmt clean).
 - Docker container for one-command browser-preview runs (verified HTTP 200); GitHub Actions CI added.
-- Quality gates green: typecheck, lint, build (~4.7s), 94 Vitest tests (10 files), 8 Playwright e2e tests (onboarding walkthrough, returning-user sign-in, local repos).
+- Feature-module architecture refactor: domains moved under `src/features/<name>/` (components/, hooks.ts/lib/, services), shared UI in `src/components/ui/`, cross-cutting in `src/services/`.
+- Workspace shell: `AppShell` tabbed shell + `App.tsx` routing (`/dashboard`, `/repositories`, `/repo/:owner/:name/:activity?`, `/sandbox`, `/local`, `/settings`); canonical link helpers `repoWorkspacePath` / `repoWorkspacePathForFullName` in `src/features/workspace/lib/tabs.ts`.
+- Repository workspace (`/repo/:owner/:name/:activity`): composition root over the 11 activities with RepoActivityRail, WorkspaceHeader (favorite/clone/link/local badge), LocalRepoGate (native folder picker, browser fallback messaging), RepoSettingsView.
+- Git-engine activities: WorktreeView (grouped changes, stage/unstage/restore/discard, commit/amend, per-file diffs), SyncCenter (fetch/pull/push + sync log), BranchExplorer (create/checkout/rename/delete + history), CompareView (base/target summary + merge preview).
+- Settings page: account/appearance/runtime/workspace cleanup/forget local repos/sign-out.
+- Rust GitEngine expansion (gix 0.68.0): `git_file_diff`, `git_compare_refs`, `git_merge_preview`, `git_sync_log`, `pick_repository_folder`, and `git_worktree_status` full shape (staged/unstaged/untracked/ignored + per-file stats + tracking ahead/behind). Capabilities include `dialog:default`; cargo check + clippy clean.
+- Quality gates green: typecheck, lint (0 warnings), build (bundle size warning only), 94 Vitest tests (10 files), 8 Playwright e2e tests (dashboard routes stubbed so no live API dependency).
 
 ## In Progress
 
-- Initial application commit (repo currently holds only the memory-base initial commit; all app code is untracked).
+- Commit of the feature-module Repository IDE refactor (rename moves, workspace shell, Git-engine activities, GitEngine expansion, ADRs 0010/0011) — staged/uncommitted on top of `b2cd37b`.
+- Interactive desktop verification (`npm run tauri dev` run through the UI, including the native folder picker and the new diff/compare/sync commands).
 - Local Git operation coverage in the Rust shell: push, pull, fetch, restore, checkout, rename-branch, cherry-pick, revert, reset, tag, stash, compare-branches currently return `unsupported` (UI renders an amber warning).
-- Interactive desktop verification (`npm run tauri dev` run through the UI).
 
 ## Not Started
 
 - OAuth device flow
 - GitLab/Gitea/Forgejo providers behind the Provider port
-- Repository sandbox (realistic operations)
 - Release pipeline
 - Intelligence layer (platform vision)
 
 ## Next Likely Work
 
-- Commit the initial application tree.
+- Commit the feature-module Repository IDE refactor.
 - Implement push/pull/fetch and remaining GitRuntime operations in lib.rs.
-- Interactive desktop verification of the Phase 1 UI/UX.
+- Interactive desktop verification of the repository workspace / Git-engine activities.
 - OAuth device flow behind the auth session model.
 - Second provider (GitLab or Gitea) behind the Provider port.

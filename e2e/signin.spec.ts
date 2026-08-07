@@ -9,6 +9,43 @@ const GITHUB_USER = {
   type: "User",
 };
 
+const HELLO_WORLD_COMMIT = {
+  sha: "c0ffee1234567890abcdef1234567890abcdef12",
+  commit: {
+    author: {
+      name: "Mona Octocat",
+      email: "octocat@github.com",
+      date: "2026-08-01T00:00:00Z",
+    },
+    committer: {
+      name: "Mona Octocat",
+      email: "octocat@github.com",
+      date: "2026-08-01T00:00:00Z",
+    },
+    message: "Update README",
+  },
+  html_url: "https://github.com/octocat/hello-world/commit/c0ffee",
+  author: { login: "octocat", avatar_url: "https://avatars.githubusercontent.com/octocat" },
+  committer: { login: "octocat", avatar_url: "https://avatars.githubusercontent.com/octocat" },
+  parents: [{ sha: "beefcafe1234567890abcdef1234567890abcdef12" }],
+};
+
+/** Stub the dashboard's per-repo collaboration queries (used after sign-in). */
+async function stubDashboardRoutes(page: Page): Promise<void> {
+  await page.route("https://api.github.com/repos/octocat/hello-world/commits**", (route) =>
+    route.fulfill({ status: 200, json: [HELLO_WORLD_COMMIT] }),
+  );
+  await page.route("https://api.github.com/repos/octocat/hello-world/pulls**", (route) =>
+    route.fulfill({ status: 200, json: [] }),
+  );
+  await page.route("https://api.github.com/repos/octocat/hello-world/issues**", (route) =>
+    route.fulfill({ status: 200, json: [] }),
+  );
+  await page.route("https://api.github.com/repos/octocat/hello-world/actions/runs**", (route) =>
+    route.fulfill({ status: 200, json: { workflow_runs: [] } }),
+  );
+}
+
 const HELLO_WORLD = {
   id: 42,
   full_name: "octocat/hello-world",
@@ -44,7 +81,7 @@ test.describe("onboarding (first run)", () => {
   test("boots to onboarding on first run", async ({ page }) => {
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { name: "Welcome to GitOS" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Welcome to Repo Pilot" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Sign in with GitHub" })).not.toBeVisible();
   });
 
@@ -66,6 +103,7 @@ test.describe("onboarding (first run)", () => {
     await page.route("https://api.github.com/user/orgs**", (route) =>
       route.fulfill({ status: 200, json: [ORGANIZATION] }),
     );
+    await stubDashboardRoutes(page);
 
     await page.goto("/");
     await page.getByRole("button", { name: "Get started" }).click();
@@ -96,7 +134,7 @@ test.describe("onboarding (first run)", () => {
     await expect(page.getByText("octocat/hello-world")).toBeVisible();
 
     const preferences = await page.evaluate(() =>
-      JSON.parse(localStorage.getItem("gitos:preferences") ?? "{}"),
+      JSON.parse(localStorage.getItem("repoPilot:preferences") ?? "{}"),
     );
     expect(preferences["onboarding-completed"]).toBe(true);
   });
@@ -121,7 +159,7 @@ test.describe("onboarding (first run)", () => {
 test.describe("sign in (returning users)", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
-      localStorage.setItem("gitos:preferences", JSON.stringify({ "onboarding-completed": true }));
+      localStorage.setItem("repoPilot:preferences", JSON.stringify({ "onboarding-completed": true }));
     });
   });
 
@@ -157,6 +195,7 @@ test.describe("sign in (returning users)", () => {
     await page.route("https://api.github.com/user/repos**", (route) =>
       route.fulfill({ status: 200, json: [HELLO_WORLD] }),
     );
+    await stubDashboardRoutes(page);
 
     await page.goto("/");
     await page.getByPlaceholder("github_pat_...").fill("github_pat_valid");

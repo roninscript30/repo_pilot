@@ -1,5 +1,8 @@
 use gix::{
     bstr::{BStr, ByteSlice},
+    diff::{
+        blob::{self, intern::InternedInput, sink::Counter, Algorithm},
+    },
     open,
     refs::{
         transaction::{Change, PreviousValue, RefLog},
@@ -9,13 +12,17 @@ use gix::{
 };
 use keyring::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
-use std::{fs, path::Path, path::PathBuf};
+use std::{
+    fs,
+    ops::Range,
+    path::{Path, PathBuf},
+};
 use tauri::Manager;
 use tempfile::TempDir;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum GitOSError {
+pub enum RepoPilotError {
     #[error("Keyring error: {0}")]
     Keyring(#[from] KeyringError),
     #[error("Git error: {0}")]
@@ -32,7 +39,7 @@ pub enum GitOSError {
     NoAppDataDir,
 }
 
-impl serde::Serialize for GitOSError {
+impl serde::Serialize for RepoPilotError {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -41,14 +48,14 @@ impl serde::Serialize for GitOSError {
     }
 }
 
-type GitOSResult<T> = std::result::Result<T, GitOSError>;
+type RepoPilotResult<T> = std::result::Result<T, RepoPilotError>;
 
-/// Map any displayable error into a user-facing GitOSError::Git message.
-fn git_err<E: std::fmt::Display>(error: E) -> GitOSError {
-    GitOSError::Git(error.to_string())
+/// Map any displayable error into a user-facing RepoPilotError::Git message.
+fn git_err<E: std::fmt::Display>(error: E) -> RepoPilotError {
+    RepoPilotError::Git(error.to_string())
 }
 
-const SERVICE_NAME: &str = "com.git-os.repo_pilot";
+const SERVICE_NAME: &str = "com.repopilot.app";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -127,16 +134,123 @@ struct GitRunInSandboxArgs {
     payload: serde_json::Value,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitFileDiffArgs {
+    path: String,
+    spec: FileDiffSpec,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FileDiffSpec {
+    path: String,
+    base: String,
+    target: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitCompareRefsArgs {
+    path: String,
+    base_ref: String,
+    target_ref: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitMergePreviewArgs {
+    path: String,
+    head_ref: String,
+    target_ref: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitSyncLogArgs {
+    path: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WorktreeStatus {
     repo_path: String,
     current_branch: Option<String>,
+    head_sha: Option<String>,
+    tracking_branch: Option<String>,
+    ahead_by: u32,
+    behind_by: u32,
+    /// Per-file detail; the grouped path lists below are derived views.
+    files: Vec<WorktreeFile>,
     staged: Vec<String>,
     unstaged: Vec<String>,
     untracked: Vec<String>,
+    ignored: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorktreeFile {
+    path: String,
+    state: String,
+    staged_additions: u32,
+    staged_deletions: u32,
+    unstaged_additions: u32,
+    unstaged_deletions: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileDiff {
+    path: String,
+    status: String,
+    additions: u32,
+    deletions: u32,
+    patch: Option<String>,
+    binary: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RefComparisonFile {
+    path: String,
+    status: String,
+    additions: u32,
+    deletions: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RefComparison {
+    base_ref: String,
+    target_ref: String,
+    merge_base: Option<String>,
     ahead_by: u32,
     behind_by: u32,
+    commits: Vec<CommitSummary>,
+    files: Vec<RefComparisonFile>,
+    conflict_paths: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MergePreview {
+    head_ref: String,
+    target_ref: String,
+    merge_base: Option<String>,
+    fast_forward: bool,
+    commits_ahead: u32,
+    files_changed: Vec<RefComparisonFile>,
+    conflict_paths: Vec<String>,
+    can_merge: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncLog {
+    fetch_at: Option<String>,
+    pull_at: Option<String>,
+    push_at: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -213,34 +327,34 @@ fn credential_key(provider_id: &str, account_login: &str) -> String {
 // non-secret directory of account names.
 // ---------------------------------------------------------------------------
 
-fn account_index_path(app: &tauri::AppHandle) -> GitOSResult<PathBuf> {
+fn account_index_path(app: &tauri::AppHandle) -> RepoPilotResult<PathBuf> {
     let dir = app
         .path()
         .app_data_dir()
-        .map_err(|_| GitOSError::NoAppDataDir)?;
+        .map_err(|_| RepoPilotError::NoAppDataDir)?;
     Ok(dir.join("accounts.json"))
 }
 
-fn read_account_index(app: &tauri::AppHandle) -> GitOSResult<Vec<String>> {
+fn read_account_index(app: &tauri::AppHandle) -> RepoPilotResult<Vec<String>> {
     let path = account_index_path(app)?;
     match fs::read_to_string(&path) {
-        Ok(raw) => serde_json::from_str(&raw).map_err(|e| GitOSError::Git(e.to_string())),
+        Ok(raw) => serde_json::from_str(&raw).map_err(|e| RepoPilotError::Git(e.to_string())),
         Err(_) => Ok(Vec::new()),
     }
 }
 
-fn write_account_index(app: &tauri::AppHandle, keys: &[String]) -> GitOSResult<()> {
+fn write_account_index(app: &tauri::AppHandle, keys: &[String]) -> RepoPilotResult<()> {
     let path = account_index_path(app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let raw = serde_json::to_string_pretty(keys).map_err(|e| GitOSError::Git(e.to_string()))?;
+    let raw = serde_json::to_string_pretty(keys).map_err(|e| RepoPilotError::Git(e.to_string()))?;
     fs::write(&path, raw)?;
     Ok(())
 }
 
 #[tauri::command]
-async fn credential_set(app: tauri::AppHandle, args: CredentialSetArgs) -> GitOSResult<bool> {
+async fn credential_set(app: tauri::AppHandle, args: CredentialSetArgs) -> RepoPilotResult<bool> {
     let key = credential_key(&args.provider_id, &args.account_login);
     let entry = Entry::new(SERVICE_NAME, &key)?;
     entry.set_password(&args.token)?;
@@ -254,7 +368,7 @@ async fn credential_set(app: tauri::AppHandle, args: CredentialSetArgs) -> GitOS
 }
 
 #[tauri::command]
-async fn credential_get(args: CredentialGetArgs) -> GitOSResult<Option<String>> {
+async fn credential_get(args: CredentialGetArgs) -> RepoPilotResult<Option<String>> {
     let key = credential_key(&args.provider_id, &args.account_login);
     let entry = Entry::new(SERVICE_NAME, &key)?;
     match entry.get_password() {
@@ -265,7 +379,7 @@ async fn credential_get(args: CredentialGetArgs) -> GitOSResult<Option<String>> 
 }
 
 #[tauri::command]
-async fn credential_delete(app: tauri::AppHandle, args: CredentialDeleteArgs) -> GitOSResult<()> {
+async fn credential_delete(app: tauri::AppHandle, args: CredentialDeleteArgs) -> RepoPilotResult<()> {
     let key = credential_key(&args.provider_id, &args.account_login);
     let entry = Entry::new(SERVICE_NAME, &key)?;
     match entry.delete_credential() {
@@ -284,7 +398,7 @@ async fn credential_delete(app: tauri::AppHandle, args: CredentialDeleteArgs) ->
 async fn credential_list_accounts(
     app: tauri::AppHandle,
     args: CredentialListArgs,
-) -> GitOSResult<Vec<String>> {
+) -> RepoPilotResult<Vec<String>> {
     let keys = read_account_index(&app)?;
     let prefix = format!("{}:", args.provider_id);
     let mut accounts = Vec::new();
@@ -304,7 +418,7 @@ async fn credential_list_accounts(
 // Local Git commands (gitoxide).
 // ---------------------------------------------------------------------------
 
-fn open_repo(path: &str) -> GitOSResult<Repository> {
+fn open_repo(path: &str) -> RepoPilotResult<Repository> {
     open(path).map_err(git_err)
 }
 
@@ -315,7 +429,7 @@ fn worktree_root(repo: &Repository) -> PathBuf {
 }
 
 /// Build the tree object id representing the current index contents.
-fn tree_id_from_index(repo: &Repository) -> GitOSResult<ObjectId> {
+fn tree_id_from_index(repo: &Repository) -> RepoPilotResult<ObjectId> {
     let index = repo
         .index_or_load_from_head()
         .map_err(git_err)?
@@ -339,7 +453,7 @@ fn tree_id_from_index(repo: &Repository) -> GitOSResult<ObjectId> {
 
 /// Count commits reachable from `tip` but not from `exclude` (one direction
 /// of the ahead/behind computation).
-fn count_reachable(repo: &Repository, tip: ObjectId, exclude: ObjectId) -> GitOSResult<u32> {
+fn count_reachable(repo: &Repository, tip: ObjectId, exclude: ObjectId) -> RepoPilotResult<u32> {
     let mut count = 0u32;
     for info in repo
         .rev_walk([tip])
@@ -353,92 +467,320 @@ fn count_reachable(repo: &Repository, tip: ObjectId, exclude: ObjectId) -> GitOS
     Ok(count)
 }
 
-fn get_worktree_status(repo: &Repository) -> GitOSResult<WorktreeStatus> {
-    let head_name = repo.head_name().ok().flatten().map(|name| name.to_string());
+/// True for content that cannot be line-diffed safely.
+fn is_binary(bytes: &[u8]) -> bool {
+    bytes.contains(&0)
+}
 
-    let mut staged: Vec<String> = Vec::new();
-    if let Ok(head_commit) = repo.head_commit() {
-        let head_tree = head_commit.tree().map_err(git_err)?;
-        let index_tree_id = tree_id_from_index(repo)?;
-        let index_tree = repo.find_tree(index_tree_id).map_err(git_err)?;
-        let changes = repo
-            .diff_tree_to_tree(Some(&head_tree), Some(&index_tree), None)
-            .map_err(git_err)?;
-        for change in changes {
-            staged.push(String::from_utf8_lossy(change.location().as_ref()).to_string());
+/// Count added/removed lines between two text blobs using a Myers line diff.
+fn line_stats(before: &[u8], after: &[u8]) -> (u32, u32) {
+    if is_binary(before) || is_binary(after) {
+        return (0, 0);
+    }
+    let input = InternedInput::new(before, after);
+    let counts = blob::diff(Algorithm::Myers, &input, Counter::default());
+    (counts.insertions, counts.removals)
+}
+
+/// Line counts of a text blob (used for untracked files: everything is an addition).
+fn line_count(bytes: &[u8]) -> u32 {
+    if is_binary(bytes) {
+        return 0;
+    }
+    bytes
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .count() as u32
+}
+
+fn read_blob_bytes(repo: &Repository, id: ObjectId) -> RepoPilotResult<Vec<u8>> {
+    Ok(repo.find_blob(id).map_err(git_err)?.data.to_vec())
+}
+
+/// Recursively locate a blob in a tree by repository-relative path.
+fn blob_at_tree(repo: &Repository, tree_id: ObjectId, path: &str) -> RepoPilotResult<Option<Vec<u8>>> {
+    let mut parts = path.split('/').peekable();
+    let mut tree = repo.find_tree(tree_id).map_err(git_err)?;
+    while let Some(part) = parts.next() {
+        let mut found: Option<(gix::objs::tree::EntryKind, ObjectId)> = None;
+        for entry in tree.iter() {
+            let entry = entry.map_err(git_err)?;
+            let name = entry.filename().to_str_lossy();
+            if name == part {
+                found = Some((entry.mode().kind(), entry.oid().to_owned()));
+                break;
+            }
+        }
+        let Some((kind, oid)) = found else {
+            return Ok(None);
+        };
+        if parts.peek().is_none() {
+            return if matches!(kind, gix::objs::tree::EntryKind::Blob) {
+                read_blob_bytes(repo, oid).map(Some)
+            } else {
+                Ok(None)
+            };
+        }
+        tree = repo.find_tree(oid).map_err(git_err)?;
+    }
+    Ok(None)
+}
+
+/// Render a unified diff patch (git format) between two text blobs.
+fn render_unified_patch(before: &[u8], after: &[u8]) -> Option<String> {
+    if is_binary(before) || is_binary(after) {
+        return None;
+    }
+    let input = InternedInput::new(before, after);
+    let mut hunks: Vec<(Range<u32>, Range<u32>)> = Vec::new();
+    blob::diff(Algorithm::Myers, &input, |b: Range<u32>, a: Range<u32>| {
+        hunks.push((b, a));
+    });
+    if hunks.is_empty() {
+        return Some(String::new());
+    }
+    let mut out = String::new();
+    let mut old_line = 1u32;
+    let mut new_line = 1u32;
+    for (before_range, after_range) in hunks {
+        let old_count = before_range.end - before_range.start;
+        let new_count = after_range.end - after_range.start;
+        let old_start = if old_count == 0 { old_line.saturating_sub(1) } else { old_line };
+        let new_start = if new_count == 0 { new_line.saturating_sub(1) } else { new_line };
+        out.push_str(&format!(
+            "@@ -{},{} +{},{} @@\n",
+            old_start, old_count, new_start, new_count
+        ));
+        for token in &input.before[before_range.start as usize..before_range.end as usize] {
+            out.push('-');
+            out.push_str(&String::from_utf8_lossy(input.interner[*token]));
+            out.push('\n');
+        }
+        for token in &input.after[after_range.start as usize..after_range.end as usize] {
+            out.push('+');
+            out.push_str(&String::from_utf8_lossy(input.interner[*token]));
+            out.push('\n');
+        }
+        old_line += old_count;
+        new_line += new_count;
+    }
+    Some(out)
+}
+
+/// The remote-tracking branch for a local branch, e.g. "origin/main".
+fn find_tracking_branch(repo: &Repository, branch: &str) -> RepoPilotResult<Option<String>> {
+    let suffix = format!("/{}", branch);
+    let mut candidate: Option<String> = None;
+    for reference in repo.references().map_err(git_err)?.all().map_err(git_err)? {
+        let reference = reference.map_err(git_err)?;
+        let name = reference.name().as_bstr().to_str_lossy().to_string();
+        if name.starts_with("refs/remotes/") && name.ends_with(&suffix) {
+            let prefer_origin = candidate
+                .as_deref()
+                .is_none_or(|current| current.starts_with("refs/remotes/origin/"));
+            let is_origin = name.starts_with("refs/remotes/origin/");
+            if prefer_origin || is_origin {
+                candidate = Some(name.trim_start_matches("refs/remotes/").to_string());
+                if is_origin {
+                    break;
+                }
+            }
         }
     }
+    Ok(candidate)
+}
 
-    let mut unstaged: Vec<String> = Vec::new();
-    let mut untracked: Vec<String> = Vec::new();
+/// Per-file staged stats between HEAD's tree and the index tree.
+fn staged_files_with_stats(repo: &Repository) -> RepoPilotResult<Vec<WorktreeFile>> {
+    let head_commit = match repo.head_commit() {
+        Ok(commit) => commit,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let head_tree = head_commit.tree().map_err(git_err)?;
+    let index_tree_id = tree_id_from_index(repo)?;
+    let index_tree = repo.find_tree(index_tree_id).map_err(git_err)?;
+
+    let mut platform = head_tree.changes().map_err(git_err)?;
+    let mut out: Vec<WorktreeFile> = Vec::new();
+    platform
+        .for_each_to_obtain_tree(&index_tree, |change| {
+            use gix::object::tree::diff::Action;
+            let mut cache = repo
+                .diff_resource_cache_for_tree_diff()
+                .map_err(|e| RepoPilotError::Git(e.to_string()))?;
+            let (insertions, removals) = change
+                .diff(&mut cache)
+                .ok()
+                .and_then(|mut platform| platform.line_counts().ok())
+                .flatten()
+                .map(|counts| (counts.insertions, counts.removals))
+                .unwrap_or_default();
+            out.push(WorktreeFile {
+                path: String::from_utf8_lossy(change.location().as_ref()).to_string(),
+                state: "staged".into(),
+                staged_additions: insertions,
+                staged_deletions: removals,
+                unstaged_additions: 0,
+                unstaged_deletions: 0,
+            });
+            Ok::<_, RepoPilotError>(Action::Continue)
+        })
+        .map_err(git_err)?;
+    Ok(out)
+}
+
+fn get_worktree_status(repo: &Repository) -> RepoPilotResult<WorktreeStatus> {
+    let head_name = repo.head_name().ok().flatten().map(|name| name.to_string());
+    let head_sha = repo
+        .head_commit()
+        .ok()
+        .map(|commit| commit.id().to_hex().to_string());
+
+    let staged = staged_files_with_stats(repo)?;
+
+    let mut unstaged: Vec<WorktreeFile> = Vec::new();
+    let mut untracked: Vec<WorktreeFile> = Vec::new();
+    let mut ignored: Vec<WorktreeFile> = Vec::new();
+    let root = worktree_root(repo);
     let status = repo
         .status(gix::progress::Discard)
         .map_err(git_err)?
+        .index_worktree_options_mut(|options| {
+            if let Some(dirwalk) = options.dirwalk_options.as_mut() {
+                dirwalk.set_emit_ignored(Some(gix::dir::walk::EmissionMode::Matching));
+            }
+        })
         .index_worktree_rewrites(None)
         .into_index_worktree_iter(Vec::<gix::bstr::BString>::new())
         .map_err(git_err)?;
     for item in status {
         let item = item.map_err(git_err)?;
         match item {
-            gix::status::index_worktree::iter::Item::Modification { rela_path, .. } => {
-                unstaged.push(String::from_utf8_lossy(rela_path.as_ref()).to_string());
+            gix::status::index_worktree::iter::Item::Modification { entry, rela_path, .. } => {
+                let path = String::from_utf8_lossy(rela_path.as_ref()).to_string();
+                let index_bytes = read_blob_bytes(repo, entry.id).unwrap_or_default();
+                let disk = fs::read(root.join(&path)).unwrap_or_default();
+                let (insertions, removals) = line_stats(&index_bytes, &disk);
+                unstaged.push(WorktreeFile {
+                    path,
+                    state: "unstaged".into(),
+                    staged_additions: 0,
+                    staged_deletions: 0,
+                    unstaged_additions: insertions,
+                    unstaged_deletions: removals,
+                });
             }
             gix::status::index_worktree::iter::Item::DirectoryContents { entry, .. } => {
-                if matches!(entry.status, gix::dir::entry::Status::Untracked) {
-                    untracked.push(String::from_utf8_lossy(entry.rela_path.as_ref()).to_string());
+                let path = String::from_utf8_lossy(entry.rela_path.as_ref()).to_string();
+                match entry.status {
+                    gix::dir::entry::Status::Untracked => {
+                        let additions = fs::read(root.join(&path))
+                            .map(|bytes| line_count(&bytes))
+                            .unwrap_or(0);
+                        untracked.push(WorktreeFile {
+                            path,
+                            state: "untracked".into(),
+                            staged_additions: 0,
+                            staged_deletions: 0,
+                            unstaged_additions: additions,
+                            unstaged_deletions: 0,
+                        });
+                    }
+                    gix::dir::entry::Status::Ignored(_) => ignored.push(WorktreeFile {
+                        path,
+                        state: "ignored".into(),
+                        staged_additions: 0,
+                        staged_deletions: 0,
+                        unstaged_additions: 0,
+                        unstaged_deletions: 0,
+                    }),
+                    _ => {}
                 }
             }
             gix::status::index_worktree::iter::Item::Rewrite { .. } => {}
         }
     }
 
-    let (ahead_by, behind_by) = match &head_name {
-        Some(name) => {
-            let upstream = format!("refs/remotes/origin/{}", name);
-            repo.find_reference(&upstream)
-                .map_err(git_err)
-                .and_then(|mut reference| {
-                    let head_id = repo.head_commit().map_err(git_err)?.id().detach();
-                    let upstream_id = reference.peel_to_id_in_place().map_err(git_err)?.detach();
-                    let ahead = count_reachable(repo, head_id, upstream_id)?;
-                    let behind = count_reachable(repo, upstream_id, head_id)?;
-                    Ok((ahead, behind))
-                })
-                .unwrap_or_default()
-        }
-        None => (0, 0),
+    let (tracking_branch, ahead_by, behind_by) = match &head_name {
+        Some(name) => match find_tracking_branch(repo, name)? {
+            Some(tracking) => {
+                let upstream_id = repo
+                    .find_reference(&format!("refs/remotes/{}", tracking))
+                    .map_err(git_err)?
+                    .peel_to_id_in_place()
+                    .map_err(git_err)?
+                    .detach();
+                let head_id = repo.head_commit().map_err(git_err)?.id().detach();
+                (
+                    Some(tracking),
+                    count_reachable(repo, head_id, upstream_id)?,
+                    count_reachable(repo, upstream_id, head_id)?,
+                )
+            }
+            None => (None, 0, 0),
+        },
+        None => (None, 0, 0),
     };
 
+    let mut files = staged;
+    files.extend(unstaged);
+    files.extend(untracked);
+    files.extend(ignored);
+    let staged_paths = files
+        .iter()
+        .filter(|file| file.state == "staged")
+        .map(|file| file.path.clone())
+        .collect();
+    let unstaged_paths = files
+        .iter()
+        .filter(|file| file.state == "unstaged")
+        .map(|file| file.path.clone())
+        .collect();
+    let untracked_paths = files
+        .iter()
+        .filter(|file| file.state == "untracked")
+        .map(|file| file.path.clone())
+        .collect();
+    let ignored_paths = files
+        .iter()
+        .filter(|file| file.state == "ignored")
+        .map(|file| file.path.clone())
+        .collect();
+
     Ok(WorktreeStatus {
-        repo_path: worktree_root(repo).to_string_lossy().to_string(),
+        repo_path: root.to_string_lossy().to_string(),
         current_branch: head_name,
-        staged,
-        unstaged,
-        untracked,
+        head_sha,
+        tracking_branch,
         ahead_by,
         behind_by,
+        files,
+        staged: staged_paths,
+        unstaged: unstaged_paths,
+        untracked: untracked_paths,
+        ignored: ignored_paths,
     })
 }
 
 #[tauri::command]
-async fn git_open_repository(args: GitOpenRepoArgs) -> GitOSResult<Option<WorktreeStatus>> {
+async fn git_open_repository(args: GitOpenRepoArgs) -> RepoPilotResult<Option<WorktreeStatus>> {
     match open_repo(&args.path) {
         Ok(repo) => get_worktree_status(&repo).map(Some),
-        Err(GitOSError::Git(_)) => Ok(None),
+        Err(RepoPilotError::Git(_)) => Ok(None),
         Err(e) => Err(e),
     }
 }
 
 #[tauri::command]
-async fn git_worktree_status(args: GitWorktreeStatusArgs) -> GitOSResult<Option<WorktreeStatus>> {
+async fn git_worktree_status(args: GitWorktreeStatusArgs) -> RepoPilotResult<Option<WorktreeStatus>> {
     match open_repo(&args.path) {
         Ok(repo) => get_worktree_status(&repo).map(Some),
-        Err(GitOSError::Git(_)) => Ok(None),
+        Err(RepoPilotError::Git(_)) => Ok(None),
         Err(e) => Err(e),
     }
 }
 
-fn commit_to_summary(commit: &gix::Commit<'_>) -> GitOSResult<CommitSummary> {
+fn commit_to_summary(commit: &gix::Commit<'_>) -> RepoPilotResult<CommitSummary> {
     let author = commit.author().map_err(git_err)?;
     let message = commit.message_raw().map_err(git_err)?;
     let subject = message.lines().next().unwrap_or_default().to_str_lossy();
@@ -457,7 +799,7 @@ fn commit_to_summary(commit: &gix::Commit<'_>) -> GitOSResult<CommitSummary> {
     })
 }
 
-fn commit_to_detail(repo: &Repository, commit: &gix::Commit<'_>) -> GitOSResult<CommitDetail> {
+fn commit_to_detail(repo: &Repository, commit: &gix::Commit<'_>) -> RepoPilotResult<CommitDetail> {
     let summary = commit_to_summary(commit)?;
 
     let tree = commit.tree().map_err(git_err)?;
@@ -515,7 +857,7 @@ fn commit_to_detail(repo: &Repository, commit: &gix::Commit<'_>) -> GitOSResult<
     })
 }
 
-fn branch_to_model(repo: &Repository, name: &str) -> GitOSResult<Branch> {
+fn branch_to_model(repo: &Repository, name: &str) -> RepoPilotResult<Branch> {
     let mut reference = repo.find_reference(name).map_err(git_err)?;
     let commit = reference
         .peel_to_id_in_place()
@@ -532,7 +874,7 @@ fn branch_to_model(repo: &Repository, name: &str) -> GitOSResult<Branch> {
 }
 
 #[tauri::command]
-async fn git_list_branches(args: GitListBranchesArgs) -> GitOSResult<Vec<Branch>> {
+async fn git_list_branches(args: GitListBranchesArgs) -> RepoPilotResult<Vec<Branch>> {
     let repo = open_repo(&args.path)?;
     let mut branches = Vec::new();
     for reference in repo.references().map_err(git_err)?.all().map_err(git_err)? {
@@ -546,7 +888,7 @@ async fn git_list_branches(args: GitListBranchesArgs) -> GitOSResult<Vec<Branch>
 }
 
 #[tauri::command]
-async fn git_list_commits(args: GitListCommitsArgs) -> GitOSResult<Vec<CommitSummary>> {
+async fn git_list_commits(args: GitListCommitsArgs) -> RepoPilotResult<Vec<CommitSummary>> {
     let repo = open_repo(&args.path)?;
     let branch_name = args.branch.unwrap_or_else(|| {
         repo.head_name()
@@ -585,23 +927,326 @@ async fn git_list_commits(args: GitListCommitsArgs) -> GitOSResult<Vec<CommitSum
 }
 
 #[tauri::command]
-async fn git_get_commit(args: GitGetCommitArgs) -> GitOSResult<CommitDetail> {
+async fn git_get_commit(args: GitGetCommitArgs) -> RepoPilotResult<CommitDetail> {
     let repo = open_repo(&args.path)?;
     let object_id = ObjectId::from_hex(args.sha.as_bytes()).map_err(git_err)?;
     let commit = repo.find_commit(object_id).map_err(git_err)?;
     commit_to_detail(&repo, &commit)
 }
 
+fn resolve_commit_id(repo: &Repository, name: &str) -> RepoPilotResult<ObjectId> {
+    let rev = if name == "HEAD" {
+        name.to_string()
+    } else {
+        format!("refs/heads/{}", name)
+    };
+    let rev_bstr: &BStr = rev.as_bytes().as_bstr();
+    let commit = repo
+        .rev_parse_single(rev_bstr)
+        .map_err(git_err)?
+        .object()
+        .map_err(git_err)?
+        .try_into_commit()
+        .map_err(git_err)?;
+    Ok(commit.id().detach())
+}
+
+/// Collect path/status/line-stat rows for the diff between two commits.
+fn files_between_commits(
+    repo: &Repository,
+    base_id: Option<ObjectId>,
+    target_id: ObjectId,
+) -> RepoPilotResult<Vec<RefComparisonFile>> {
+    use gix::object::tree::diff::Change;
+
+    let target_tree = repo.find_commit(target_id).map_err(git_err)?.tree().map_err(git_err)?;
+    let base_tree = base_id
+        .map(|id| repo.find_commit(id).map_err(git_err).and_then(|commit| commit.tree().map_err(git_err)))
+        .transpose()?;
+
+    let mut out: Vec<RefComparisonFile> = Vec::new();
+    if let Some(base_tree) = base_tree.as_ref() {
+        let mut platform = base_tree.changes().map_err(git_err)?;
+        platform
+            .for_each_to_obtain_tree(&target_tree, |change| {
+                use gix::object::tree::diff::Action;
+                let mut cache = repo
+                    .diff_resource_cache_for_tree_diff()
+                    .map_err(|e| RepoPilotError::Git(e.to_string()))?;
+                let (insertions, removals) = change
+                    .diff(&mut cache)
+                    .ok()
+                    .and_then(|mut platform| platform.line_counts().ok())
+                    .flatten()
+                    .map(|counts| (counts.insertions, counts.removals))
+                    .unwrap_or_default();
+                let status = match change {
+                    Change::Addition { .. } => "added",
+                    Change::Deletion { .. } => "removed",
+                    Change::Modification { .. } => "modified",
+                    Change::Rewrite { copy, .. } => {
+                        if copy {
+                            "added"
+                        } else {
+                            "renamed"
+                        }
+                    }
+                };
+                out.push(RefComparisonFile {
+                    path: String::from_utf8_lossy(change.location().as_ref()).to_string(),
+                    status: status.to_string(),
+                    additions: insertions,
+                    deletions: removals,
+                });
+                Ok::<_, RepoPilotError>(Action::Continue)
+            })
+            .map_err(git_err)?;
+    }
+    Ok(out)
+}
+
+/// Commit summaries reachable from `target` but not from `base` (limit 50).
+fn commits_between(
+    repo: &Repository,
+    target: ObjectId,
+    base: ObjectId,
+) -> RepoPilotResult<Vec<CommitSummary>> {
+    let mut commits = Vec::new();
+    for item in repo
+        .rev_walk([target])
+        .with_pruned([base])
+        .all()
+        .map_err(git_err)?
+        .take(50)
+    {
+        let info = item.map_err(git_err)?;
+        let commit = repo.find_commit(info.id).map_err(git_err)?;
+        commits.push(commit_to_summary(&commit)?);
+    }
+    Ok(commits)
+}
+
+/// Paths that both sides touch relative to the merge base.
+fn overlapping_paths(
+    ours: Vec<RefComparisonFile>,
+    theirs: Vec<RefComparisonFile>,
+) -> Vec<String> {
+    let mut ours_paths: Vec<String> = ours.into_iter().map(|file| file.path).collect();
+    let mut theirs_paths: Vec<String> = theirs.into_iter().map(|file| file.path).collect();
+    ours_paths.sort();
+    ours_paths.dedup();
+    theirs_paths.sort();
+    theirs_paths.dedup();
+    let mut out = Vec::new();
+    for path in ours_paths {
+        if theirs_paths.binary_search(&path).is_ok() {
+            out.push(path);
+        }
+    }
+    out
+}
+
+/// Diff summary between two commits (base -> target).
+fn tree_changes_between(
+    repo: &Repository,
+    base_id: ObjectId,
+    target_id: ObjectId,
+) -> RepoPilotResult<Vec<RefComparisonFile>> {
+    files_between_commits(repo, Some(base_id), target_id)
+}
+
+/// Last reflog entry timestamp matching a keyword (fetch/pull/push), if any.
+/// Reads `logs/HEAD` directly: each line is `<old> <new> <unix> <tz>\t<message>`.
+fn reflog_last_by_keyword(repo: &Repository, keyword: &str) -> RepoPilotResult<Option<String>> {
+    let path = repo.git_dir().join("logs").join("HEAD");
+    let content = match fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(_) => return Ok(None),
+    };
+    let mut out = None;
+    for line in content.lines() {
+        let message = match line.split_once('\t') {
+            Some((_, message)) => message,
+            None => continue,
+        };
+        if !message.contains(keyword) {
+            continue;
+        }
+        if let Some(unix) = line.split(' ').nth(2) {
+            if let Ok(seconds) = unix.parse::<i64>() {
+                out = Some(seconds.to_string());
+            }
+        }
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+async fn git_file_diff(args: GitFileDiffArgs) -> RepoPilotResult<Option<FileDiff>> {
+    let repo = open_repo(&args.path)?;
+    let root = worktree_root(&repo);
+    let spec = args.spec;
+
+    let before: Vec<u8> = match spec.base.as_str() {
+        "HEAD" => match repo.head_commit() {
+            Ok(head) => blob_at_tree(
+                &repo,
+                head.tree().map_err(git_err)?.id,
+                &spec.path,
+            )?.unwrap_or_default(),
+            Err(_) => Vec::new(),
+        },
+        "index" => {
+            let index = repo.index_or_load_from_head().map_err(git_err)?;
+            let entry_path: &BStr = spec.path.as_bytes().as_bstr();
+            match index.entry_by_path(entry_path) {
+                Some(entry) => read_blob_bytes(&repo, entry.id)?,
+                None => Vec::new(),
+            }
+        }
+        other => return Err(RepoPilotError::Unsupported(format!("Unknown diff base '{}'", other))),
+    };
+
+    let after: Vec<u8> = match spec.target.as_str() {
+        "index" => {
+            let index = repo.index_or_load_from_head().map_err(git_err)?;
+            let entry_path: &BStr = spec.path.as_bytes().as_bstr();
+            match index.entry_by_path(entry_path) {
+                Some(entry) => read_blob_bytes(&repo, entry.id)?,
+                None => Vec::new(),
+            }
+        }
+        "worktree" => fs::read(root.join(&spec.path)).unwrap_or_default(),
+        other => return Err(RepoPilotError::InvalidRef(other.into())),
+    };
+
+    let status = if before.is_empty() {
+        "added"
+    } else if after.is_empty() {
+        "removed"
+    } else {
+        "modified"
+    };
+
+    let (additions, deletions) = line_stats(&before, &after);
+    let patch = if spec.base == "HEAD" || spec.target == "index" {
+        render_unified_patch(&before, &after)
+    } else {
+        Some(String::new())
+    };
+    let binary = is_binary(&before) || is_binary(&after);
+
+    Ok(Some(FileDiff {
+        path: spec.path,
+        status: status.to_string(),
+        additions,
+        deletions,
+        patch: if binary { None } else { patch },
+        binary,
+    }))
+}
+
+#[tauri::command]
+async fn git_compare_refs(args: GitCompareRefsArgs) -> RepoPilotResult<RefComparison> {
+    let repo = open_repo(&args.path)?;
+    let base_id = resolve_commit_id(&repo, &args.base_ref)?;
+    let target_id = resolve_commit_id(&repo, &args.target_ref)?;
+
+    let merge_base_id = repo.merge_base(base_id, target_id).ok();
+    let merge_base = merge_base_id.as_ref().map(|id| id.detach().to_hex().to_string());
+
+    let ahead_by = count_reachable(&repo, target_id, base_id)?;
+    let behind_by = count_reachable(&repo, base_id, target_id)?;
+    let commits = commits_between(&repo, target_id, base_id)?;
+    let files = match merge_base_id.as_ref() {
+        Some(mb) => tree_changes_between(&repo, mb.detach(), target_id)?,
+        None => Vec::new(),
+    };
+
+    let conflict_paths = match merge_base_id.as_ref() {
+        Some(mb) => {
+            let mb = mb.detach();
+            overlapping_paths(
+                tree_changes_between(&repo, mb, base_id)?,
+                tree_changes_between(&repo, mb, target_id)?,
+            )
+        }
+        None => Vec::new(),
+    };
+
+    Ok(RefComparison {
+        base_ref: args.base_ref,
+        target_ref: args.target_ref,
+        merge_base,
+        ahead_by,
+        behind_by,
+        commits,
+        files,
+        conflict_paths,
+    })
+}
+
+#[tauri::command]
+async fn git_merge_preview(args: GitMergePreviewArgs) -> RepoPilotResult<MergePreview> {
+    let repo = open_repo(&args.path)?;
+    let head_id = resolve_commit_id(&repo, &args.head_ref)?;
+    let target_id = resolve_commit_id(&repo, &args.target_ref)?;
+
+    let merge_base_id = repo.merge_base(head_id, target_id).ok();
+    let merge_base = merge_base_id.as_ref().map(|id| id.detach().to_hex().to_string());
+
+    let fast_forward = merge_base_id.as_ref().map(|mb| mb.detach() == head_id).unwrap_or(false);
+    let commits_ahead = count_reachable(&repo, head_id, target_id)?;
+    let files_changed = match merge_base_id.as_ref() {
+        Some(base) => tree_changes_between(&repo, base.detach(), head_id)?,
+        None => tree_changes_between(&repo, head_id, target_id)?,
+    };
+
+    let conflict_paths = match merge_base_id.as_ref() {
+        Some(base) => {
+            let base = base.detach();
+            overlapping_paths(
+                tree_changes_between(&repo, base, head_id)?,
+                tree_changes_between(&repo, base, target_id)?,
+            )
+        }
+        None => Vec::new(),
+    };
+
+    let can_merge = !fast_forward && conflict_paths.is_empty();
+
+    Ok(MergePreview {
+        head_ref: args.head_ref,
+        target_ref: args.target_ref,
+        merge_base,
+        fast_forward,
+        commits_ahead,
+        files_changed,
+        conflict_paths,
+        can_merge,
+    })
+}
+
+#[tauri::command]
+async fn git_sync_log(args: GitSyncLogArgs) -> RepoPilotResult<SyncLog> {
+    let repo = open_repo(&args.path)?;
+    Ok(SyncLog {
+        fetch_at: reflog_last_by_keyword(&repo, "fetch")?,
+        pull_at: reflog_last_by_keyword(&repo, "pull")?,
+        push_at: reflog_last_by_keyword(&repo, "push")?,
+    })
+}
+
 fn fallback_signature() -> gix::actor::Signature {
     gix::actor::Signature {
-        name: "GitOS User".into(),
-        email: "user@git-os.local".into(),
+        name: "Repo Pilot User".into(),
+        email: "user@repopilot.local".into(),
         time: gix::date::Time::now_local_or_utc(),
     }
 }
 
 /// Use the repository's configured identity when present, otherwise a
-/// clearly-labelled GitOS fallback identity.
+/// clearly-labelled Repo Pilot fallback identity.
 fn commit_signatures(repo: &Repository) -> (gix::actor::Signature, gix::actor::Signature) {
     let configured = |value: Option<
         std::result::Result<gix::actor::SignatureRef<'_>, gix::config::time::Error>,
@@ -633,7 +1278,7 @@ fn fs_entry_mode(_metadata: &std::fs::Metadata) -> gix::index::entry::Mode {
 }
 
 /// Stage a single repository-relative path (create or update the index entry).
-fn stage_path(repo: &Repository, root: &Path, relative: &str) -> GitOSResult<()> {
+fn stage_path(repo: &Repository, root: &Path, relative: &str) -> RepoPilotResult<()> {
     let path = root.join(relative);
     let bytes = fs::read(&path)?;
     let blob_id = repo.write_blob(bytes).map_err(git_err)?.detach();
@@ -669,7 +1314,7 @@ fn stage_path(repo: &Repository, root: &Path, relative: &str) -> GitOSResult<()>
     Ok(())
 }
 
-fn commit_message(repo: &Repository, message: &str) -> GitOSResult<ObjectId> {
+fn commit_message(repo: &Repository, message: &str) -> RepoPilotResult<ObjectId> {
     let tree_id = tree_id_from_index(repo)?;
     let parents: Vec<ObjectId> = match repo.head_commit() {
         Ok(head) => vec![head.id().detach()],
@@ -682,7 +1327,7 @@ fn commit_message(repo: &Repository, message: &str) -> GitOSResult<ObjectId> {
 }
 
 #[tauri::command]
-async fn git_run_operation(args: GitRunOperationArgs) -> GitOSResult<GitOperationResult> {
+async fn git_run_operation(args: GitRunOperationArgs) -> RepoPilotResult<GitOperationResult> {
     let repo = open_repo(&args.repo_path)?;
     let root = worktree_root(&repo);
 
@@ -692,7 +1337,7 @@ async fn git_run_operation(args: GitRunOperationArgs) -> GitOSResult<GitOperatio
                 .payload
                 .get("paths")
                 .and_then(|value| value.as_array())
-                .ok_or_else(|| GitOSError::Git("Missing paths".into()))?;
+                .ok_or_else(|| RepoPilotError::Git("Missing paths".into()))?;
             for path in paths {
                 let Some(path) = path.as_str() else { continue };
                 stage_path(&repo, &root, path)?;
@@ -704,7 +1349,7 @@ async fn git_run_operation(args: GitRunOperationArgs) -> GitOSResult<GitOperatio
                 .payload
                 .get("paths")
                 .and_then(|value| value.as_array())
-                .ok_or_else(|| GitOSError::Git("Missing paths".into()))?;
+                .ok_or_else(|| RepoPilotError::Git("Missing paths".into()))?;
             let mut index = repo
                 .index_or_load_from_head()
                 .map_err(git_err)?
@@ -724,7 +1369,7 @@ async fn git_run_operation(args: GitRunOperationArgs) -> GitOSResult<GitOperatio
                 .payload
                 .get("message")
                 .and_then(|value| value.as_str())
-                .ok_or_else(|| GitOSError::Git("Missing message".into()))?;
+                .ok_or_else(|| RepoPilotError::Git("Missing message".into()))?;
             let id = commit_message(&repo, message)?;
             Ok(GitOperationResult { ok: true, message: format!("Committed {}", &id.to_hex().to_string()[..7]), unsupported: None })
         }
@@ -733,7 +1378,7 @@ async fn git_run_operation(args: GitRunOperationArgs) -> GitOSResult<GitOperatio
                 .payload
                 .get("branch")
                 .and_then(|value| value.as_str())
-                .ok_or_else(|| GitOSError::Git("Missing branch".into()))?;
+                .ok_or_else(|| RepoPilotError::Git("Missing branch".into()))?;
             let ref_name = format!("refs/heads/{}", branch);
             let head_id = repo.head_commit().map_err(git_err)?.id().detach();
             repo.reference(
@@ -750,9 +1395,9 @@ async fn git_run_operation(args: GitRunOperationArgs) -> GitOSResult<GitOperatio
                 .payload
                 .get("branch")
                 .and_then(|value| value.as_str())
-                .ok_or_else(|| GitOSError::Git("Missing branch".into()))?;
+                .ok_or_else(|| RepoPilotError::Git("Missing branch".into()))?;
             let ref_name = format!("refs/heads/{}", branch);
-            let full_name = FullName::try_from(ref_name).map_err(|_| GitOSError::InvalidRef(branch.into()))?;
+            let full_name = FullName::try_from(ref_name).map_err(|_| RepoPilotError::InvalidRef(branch.into()))?;
             repo.edit_reference(gix::refs::transaction::RefEdit {
                 change: Change::Delete {
                     expected: PreviousValue::Any,
@@ -778,7 +1423,7 @@ async fn git_run_operation(args: GitRunOperationArgs) -> GitOSResult<GitOperatio
 }
 
 #[tauri::command]
-async fn git_run_in_sandbox(args: GitRunInSandboxArgs) -> GitOSResult<GitOperationResult> {
+async fn git_run_in_sandbox(args: GitRunInSandboxArgs) -> RepoPilotResult<GitOperationResult> {
     let temp_dir = TempDir::new()?;
     let sandbox_path = temp_dir.path().join(&args.sandbox_seed);
     fs::create_dir_all(&sandbox_path)?;
@@ -819,6 +1464,24 @@ async fn git_run_in_sandbox(args: GitRunInSandboxArgs) -> GitOSResult<GitOperati
     result
 }
 
+#[tauri::command]
+async fn pick_repository_folder(
+    app: tauri::AppHandle,
+) -> RepoPilotResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let dialog = app.dialog().clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        tauri_plugin_dialog::FileDialogBuilder::new(dialog).blocking_pick_folder()
+    })
+    .await
+    .map_err(git_err)?;
+    Ok(picked
+        .as_ref()
+        .and_then(|file_path| file_path.as_path())
+        .and_then(|path| path.to_str())
+        .map(|s| s.to_string()))
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -834,8 +1497,13 @@ pub fn run() {
             git_list_branches,
             git_list_commits,
             git_get_commit,
+            git_file_diff,
+            git_compare_refs,
+            git_merge_preview,
+            git_sync_log,
             git_run_operation,
             git_run_in_sandbox,
+            pick_repository_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

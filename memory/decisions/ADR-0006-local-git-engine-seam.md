@@ -5,7 +5,7 @@ Date: 2026-08-06
 
 ## Context
 
-GitOS must expose Git operations visually (commit, push, pull, fetch, stage, branch management, cherry-pick, rebase, stash, tags, and the repository sandbox). The desktop shell needs a local Git engine, and the sandbox must execute real Git operations inside isolated repositories.
+Repo Pilot must expose Git operations visually (commit, push, pull, fetch, stage, branch management, cherry-pick, rebase, stash, tags, and the repository sandbox). The desktop shell needs a local Git engine, and the sandbox must execute real Git operations inside isolated repositories.
 
 ## Decision
 
@@ -32,7 +32,7 @@ Use **gitoxide (gix)** as the local Git engine behind a `GitRuntime` seam.
 
 - All Git operations flow through `GitRuntime`; no UI component executes Git directly.
 - Sandbox execution is isolated and disposable by construction.
-- gitoxide APIs may need feature-gating; we enable only the features GitOS needs.
+- gitoxide APIs may need feature-gating; we enable only the features Repo Pilot needs.
 
 ## Follow-ups
 

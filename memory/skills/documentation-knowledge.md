@@ -17,7 +17,7 @@ When completing meaningful work:
 2. Validate the change.
 3. Update affected feature, architecture, skill, or decision docs.
 4. Update `project-memory/active-context.md` or `project-memory/implementation-log.md`.
-5. Check `memory/README.md` if navigation changed.
+5. Check `memory/index.md` if navigation changed.
 
 ## Writing Rules
 

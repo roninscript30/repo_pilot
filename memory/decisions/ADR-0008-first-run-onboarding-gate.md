@@ -11,7 +11,7 @@ an onboarding moment, not a login form: pick a provider, validate a
 fine-grained PAT, confirm required scopes, review organizations, and sync the
 initial repository index. Returning users should go straight to a classic
 sign-in; first-run users need the full walkthrough. Persistence is handled by a
-generic user-preferences service (localStorage under `gitos:preferences` in
+generic user-preferences service (localStorage under `repoPilot:preferences` in
 browser preview, OS keyring on desktop).
 
 ## Decision
@@ -47,7 +47,7 @@ sign-in.
 
 - First run requires network access to GitHub (account, orgs, repos calls).
 - E2E tests must either walk the full flow or seed the preference
-  (`gitos:preferences` -> `onboarding-completed: true`).
+  (`repoPilot:preferences` -> `onboarding-completed: true`).
 - `SignInPage` and the auth steps of onboarding both render store errors, so
   stale-token handling stays consistent.
 

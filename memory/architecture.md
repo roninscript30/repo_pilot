@@ -1,10 +1,10 @@
 # Architecture
 
-Status: Draft
+Status: Active
 Owner: Project Maintainers
-Last Updated: 2026-08-06
+Last Updated: 2026-08-07
 
-Repo Pilot is currently at project initialization stage. This document defines target architecture principles that future implementation should follow.
+Repo Pilot (product **Repo Pilot**) is implemented as a feature-module desktop application (Tauri v2 + React) with the architecture below. This document defines the architecture principles the implementation follows and the decisions locked so far.
 
 ## Target Shape
 
@@ -59,3 +59,7 @@ The platform should eventually support plugins or extensions. Early architecture
 - Local Git strategy: gitoxide behind a GitRuntime seam (ADR-0006).
 - Local data storage strategy: provider server state cached by TanStack Query; durable secrets only in OS keyring; browser preview keeps sessions in memory (ADR-0005).
 - Testing and CI: Vitest, React Testing Library, Playwright, GitHub Actions (ADR-0007).
+- First-run onboarding gate before auth; persisted via user-preferences (ADR-0008).
+- Safe markdown rendering: raw HTML escaped before parse (ADR-0009).
+- Repository workspace routed at `/repo/:owner/:name/:activity` with canonical link helpers `repoWorkspacePath` / `repoWorkspacePathForFullName` (ADR-0010).
+- GitEngine command surface expanded (file diff, ref compare, merge preview, sync log) plus native folder picker via the dialog plugin (ADR-0011).

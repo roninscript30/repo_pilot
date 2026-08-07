@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default capabilities for GitOS","local":true,"windows":["main"],"permissions":["core:default"]}}
+{"default":{"identifier":"default","description":"Default capabilities for Repo Pilot","local":true,"windows":["main"],"permissions":["core:default","dialog:default"]}}

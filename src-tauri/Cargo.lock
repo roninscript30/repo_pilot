@@ -1208,25 +1208,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gitos"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "gix",
- "keyring",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-shell",
- "tempfile",
- "thiserror 1.0.69",
- "walkdir",
-]
-
-[[package]]
 name = "gix"
 version = "0.68.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3580,6 +3561,25 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
+name = "repo-pilot"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gix",
+ "keyring",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-shell",
+ "tempfile",
+ "thiserror 1.0.69",
+ "walkdir",
+]
 
 [[package]]
 name = "reqwest"

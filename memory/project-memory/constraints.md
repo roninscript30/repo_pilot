@@ -17,4 +17,4 @@ Last Updated: 2026-08-06
 ## Environment Notes
 
 - Development machine: Ubuntu-based (resolute), Node 22.22.1, Rust 1.97.1, Docker 29.1.3.
-- The system has non-essential third-party apt repositories (Spotify, etc.) with signature warnings; they do not affect GitOS build dependencies.
+- The system has non-essential third-party apt repositories (Spotify, etc.) with signature warnings; they do not affect Repo Pilot build dependencies.

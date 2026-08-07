@@ -1,18 +1,18 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "GitOS",
+  "productName": "Repo Pilot",
   "version": "0.1.0",
-  "identifier": "com.git-os.repopilot",
+  "identifier": "com.repopilot.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:1420",
-    "frontendDist": "../dist"
+    "frontendDist": "../frontend/dist"
   },
   "app": {
     "windows": [
       {
-        "title": "GitOS",
+        "title": "Repo Pilot",
         "width": 1280,
         "height": 800,
         "minWidth": 1024,
@@ -47,10 +47,10 @@
     ],
     "resources": [],
     "externalBin": [],
-    "copyright": "© 2026 GitOS Contributors",
+    "copyright": "© 2026 Repo Pilot Contributors",
     "category": "DeveloperTool",
     "shortDescription": "Open-source, desktop-first Repository Operating Platform",
-    "longDescription": "GitOS is a desktop-first platform for managing Git repositories with a focus on developer experience, multi-provider support, and extensibility.",
+    "longDescription": "Repo Pilot is a desktop-first platform for managing Git repositories with a focus on developer experience, multi-provider support, and extensibility.",
     "linux": {
       "deb": {
         "depends": ["libwebkit2gtk-4.1-0", "libayatana-appindicator3-1", "librsvg2-common"]

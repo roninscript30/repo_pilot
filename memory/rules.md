@@ -33,7 +33,7 @@ These rules are mandatory for contributors and AI agents.
 - Documentation is part of development, not a separate task.
 - Update `memory/` when source code changes project knowledge.
 - Significant decisions require ADRs in `memory/decisions/`.
-- Feature behavior and status belong in `memory/features/README.md`.
+- Feature behavior and status belong in `memory/features/catalog.md`.
 - Reusable knowledge belongs in `memory/skills/`.
 - Current context belongs in `memory/project-memory/active-context.md`.
 - Historical progress belongs in `memory/project-memory/implementation-log.md`.

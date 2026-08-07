@@ -24,7 +24,7 @@ This manifest defines where knowledge belongs so the memory system stays clean.
 - Put mandatory engineering rules in `rules.md`.
 - Put system structure and architecture principles in `architecture.md`.
 - Put domain language and product concepts in `concepts.md`.
-- Put feature status and behavior expectations in `features/README.md`.
+- Put feature status and behavior expectations in `features/catalog.md`.
 - Put reusable how-to knowledge in `skills/`.
 - Put historical project context in `project-memory/`.
 - Put significant decisions in `decisions/` as ADRs.

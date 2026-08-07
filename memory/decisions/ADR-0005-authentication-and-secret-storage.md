@@ -5,7 +5,7 @@ Date: 2026-08-06
 
 ## Context
 
-GitOS requires provider-based authentication with multiple accounts, session persistence, permission validation, and token expiration handling. Credentials must never be stored in plaintext.
+Repo Pilot requires provider-based authentication with multiple accounts, session persistence, permission validation, and token expiration handling. Credentials must never be stored in plaintext.
 
 The project must also remain fully runnable in a browser-preview (Vite dev server) mode, which has no access to OS keychains.
 
@@ -13,7 +13,7 @@ The project must also remain fully runnable in a browser-preview (Vite dev serve
 
 Authentication is provider-based. The first provider integration is GitHub with two flows:
 
-1. **Fine-grained PAT** — the Phase 1 fallback flow. The user pastes a token; GitOS validates it and its scopes against the GitHub API before storing an account session.
+1. **Fine-grained PAT** — the Phase 1 fallback flow. The user pastes a token; Repo Pilot validates it and its scopes against the GitHub API before storing an account session.
 2. **OAuth device flow** — the Phase 1 primary flow, added after the PAT slice lands.
 
 Secrets go through a `CredentialStore` port:
