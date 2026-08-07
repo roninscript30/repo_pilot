@@ -1,8 +1,6 @@
 use gix::{
     bstr::{BStr, ByteSlice},
-    diff::{
-        blob::{self, intern::InternedInput, sink::Counter, Algorithm},
-    },
+    diff::blob::{self, intern::InternedInput, sink::Counter, Algorithm},
     open,
     refs::{
         transaction::{Change, PreviousValue, RefLog},
@@ -379,7 +377,10 @@ async fn credential_get(args: CredentialGetArgs) -> RepoPilotResult<Option<Strin
 }
 
 #[tauri::command]
-async fn credential_delete(app: tauri::AppHandle, args: CredentialDeleteArgs) -> RepoPilotResult<()> {
+async fn credential_delete(
+    app: tauri::AppHandle,
+    args: CredentialDeleteArgs,
+) -> RepoPilotResult<()> {
     let key = credential_key(&args.provider_id, &args.account_login);
     let entry = Entry::new(SERVICE_NAME, &key)?;
     match entry.delete_credential() {
@@ -498,7 +499,11 @@ fn read_blob_bytes(repo: &Repository, id: ObjectId) -> RepoPilotResult<Vec<u8>> 
 }
 
 /// Recursively locate a blob in a tree by repository-relative path.
-fn blob_at_tree(repo: &Repository, tree_id: ObjectId, path: &str) -> RepoPilotResult<Option<Vec<u8>>> {
+fn blob_at_tree(
+    repo: &Repository,
+    tree_id: ObjectId,
+    path: &str,
+) -> RepoPilotResult<Option<Vec<u8>>> {
     let mut parts = path.split('/').peekable();
     let mut tree = repo.find_tree(tree_id).map_err(git_err)?;
     while let Some(part) = parts.next() {
@@ -545,8 +550,16 @@ fn render_unified_patch(before: &[u8], after: &[u8]) -> Option<String> {
     for (before_range, after_range) in hunks {
         let old_count = before_range.end - before_range.start;
         let new_count = after_range.end - after_range.start;
-        let old_start = if old_count == 0 { old_line.saturating_sub(1) } else { old_line };
-        let new_start = if new_count == 0 { new_line.saturating_sub(1) } else { new_line };
+        let old_start = if old_count == 0 {
+            old_line.saturating_sub(1)
+        } else {
+            old_line
+        };
+        let new_start = if new_count == 0 {
+            new_line.saturating_sub(1)
+        } else {
+            new_line
+        };
         out.push_str(&format!(
             "@@ -{},{} +{},{} @@\n",
             old_start, old_count, new_start, new_count
@@ -656,7 +669,9 @@ fn get_worktree_status(repo: &Repository) -> RepoPilotResult<WorktreeStatus> {
     for item in status {
         let item = item.map_err(git_err)?;
         match item {
-            gix::status::index_worktree::iter::Item::Modification { entry, rela_path, .. } => {
+            gix::status::index_worktree::iter::Item::Modification {
+                entry, rela_path, ..
+            } => {
                 let path = String::from_utf8_lossy(rela_path.as_ref()).to_string();
                 let index_bytes = read_blob_bytes(repo, entry.id).unwrap_or_default();
                 let disk = fs::read(root.join(&path)).unwrap_or_default();
@@ -772,7 +787,9 @@ async fn git_open_repository(args: GitOpenRepoArgs) -> RepoPilotResult<Option<Wo
 }
 
 #[tauri::command]
-async fn git_worktree_status(args: GitWorktreeStatusArgs) -> RepoPilotResult<Option<WorktreeStatus>> {
+async fn git_worktree_status(
+    args: GitWorktreeStatusArgs,
+) -> RepoPilotResult<Option<WorktreeStatus>> {
     match open_repo(&args.path) {
         Ok(repo) => get_worktree_status(&repo).map(Some),
         Err(RepoPilotError::Git(_)) => Ok(None),
@@ -959,9 +976,17 @@ fn files_between_commits(
 ) -> RepoPilotResult<Vec<RefComparisonFile>> {
     use gix::object::tree::diff::Change;
 
-    let target_tree = repo.find_commit(target_id).map_err(git_err)?.tree().map_err(git_err)?;
+    let target_tree = repo
+        .find_commit(target_id)
+        .map_err(git_err)?
+        .tree()
+        .map_err(git_err)?;
     let base_tree = base_id
-        .map(|id| repo.find_commit(id).map_err(git_err).and_then(|commit| commit.tree().map_err(git_err)))
+        .map(|id| {
+            repo.find_commit(id)
+                .map_err(git_err)
+                .and_then(|commit| commit.tree().map_err(git_err))
+        })
         .transpose()?;
 
     let mut out: Vec<RefComparisonFile> = Vec::new();
@@ -1027,10 +1052,7 @@ fn commits_between(
 }
 
 /// Paths that both sides touch relative to the merge base.
-fn overlapping_paths(
-    ours: Vec<RefComparisonFile>,
-    theirs: Vec<RefComparisonFile>,
-) -> Vec<String> {
+fn overlapping_paths(ours: Vec<RefComparisonFile>, theirs: Vec<RefComparisonFile>) -> Vec<String> {
     let mut ours_paths: Vec<String> = ours.into_iter().map(|file| file.path).collect();
     let mut theirs_paths: Vec<String> = theirs.into_iter().map(|file| file.path).collect();
     ours_paths.sort();
@@ -1089,11 +1111,8 @@ async fn git_file_diff(args: GitFileDiffArgs) -> RepoPilotResult<Option<FileDiff
 
     let before: Vec<u8> = match spec.base.as_str() {
         "HEAD" => match repo.head_commit() {
-            Ok(head) => blob_at_tree(
-                &repo,
-                head.tree().map_err(git_err)?.id,
-                &spec.path,
-            )?.unwrap_or_default(),
+            Ok(head) => blob_at_tree(&repo, head.tree().map_err(git_err)?.id, &spec.path)?
+                .unwrap_or_default(),
             Err(_) => Vec::new(),
         },
         "index" => {
@@ -1104,7 +1123,12 @@ async fn git_file_diff(args: GitFileDiffArgs) -> RepoPilotResult<Option<FileDiff
                 None => Vec::new(),
             }
         }
-        other => return Err(RepoPilotError::Unsupported(format!("Unknown diff base '{}'", other))),
+        other => {
+            return Err(RepoPilotError::Unsupported(format!(
+                "Unknown diff base '{}'",
+                other
+            )))
+        }
     };
 
     let after: Vec<u8> = match spec.target.as_str() {
@@ -1153,7 +1177,9 @@ async fn git_compare_refs(args: GitCompareRefsArgs) -> RepoPilotResult<RefCompar
     let target_id = resolve_commit_id(&repo, &args.target_ref)?;
 
     let merge_base_id = repo.merge_base(base_id, target_id).ok();
-    let merge_base = merge_base_id.as_ref().map(|id| id.detach().to_hex().to_string());
+    let merge_base = merge_base_id
+        .as_ref()
+        .map(|id| id.detach().to_hex().to_string());
 
     let ahead_by = count_reachable(&repo, target_id, base_id)?;
     let behind_by = count_reachable(&repo, base_id, target_id)?;
@@ -1193,9 +1219,14 @@ async fn git_merge_preview(args: GitMergePreviewArgs) -> RepoPilotResult<MergePr
     let target_id = resolve_commit_id(&repo, &args.target_ref)?;
 
     let merge_base_id = repo.merge_base(head_id, target_id).ok();
-    let merge_base = merge_base_id.as_ref().map(|id| id.detach().to_hex().to_string());
+    let merge_base = merge_base_id
+        .as_ref()
+        .map(|id| id.detach().to_hex().to_string());
 
-    let fast_forward = merge_base_id.as_ref().map(|mb| mb.detach() == head_id).unwrap_or(false);
+    let fast_forward = merge_base_id
+        .as_ref()
+        .map(|mb| mb.detach() == head_id)
+        .unwrap_or(false);
     let commits_ahead = count_reachable(&repo, head_id, target_id)?;
     let files_changed = match merge_base_id.as_ref() {
         Some(base) => tree_changes_between(&repo, base.detach(), head_id)?,
@@ -1465,9 +1496,7 @@ async fn git_run_in_sandbox(args: GitRunInSandboxArgs) -> RepoPilotResult<GitOpe
 }
 
 #[tauri::command]
-async fn pick_repository_folder(
-    app: tauri::AppHandle,
-) -> RepoPilotResult<Option<String>> {
+async fn pick_repository_folder(app: tauri::AppHandle) -> RepoPilotResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
     let dialog = app.dialog().clone();
     let picked = tauri::async_runtime::spawn_blocking(move || {
@@ -1480,6 +1509,40 @@ async fn pick_repository_folder(
         .and_then(|file_path| file_path.as_path())
         .and_then(|path| path.to_str())
         .map(|s| s.to_string()))
+}
+
+/// Open an http(s) URL in the system's default browser.
+///
+/// Used by the GitHub OAuth Device Flow so sign-in does not depend on the
+/// webview's window handling. Only http(s) URLs are accepted; the command
+/// refuses anything else to avoid treating app data as a command target.
+#[tauri::command]
+async fn open_external(url: String) -> RepoPilotResult<()> {
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return Err(RepoPilotError::Unsupported(format!(
+            "Refusing to open non-HTTP URL: {url}"
+        )));
+    }
+    open_in_browser(&url)?;
+    Ok(())
+}
+
+fn open_in_browser(url: &str) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(url).spawn()?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .spawn()?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn()?;
+    }
+    Ok(())
 }
 
 pub fn run() {
@@ -1504,6 +1567,7 @@ pub fn run() {
             git_run_operation,
             git_run_in_sandbox,
             pick_repository_folder,
+            open_external,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

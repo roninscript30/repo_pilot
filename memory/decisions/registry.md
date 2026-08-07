@@ -37,3 +37,4 @@ Date: YYYY-MM-DD
 - `ADR-0009-safe-markdown-rendering.md`
 - `ADR-0010-repository-workspace-route-architecture.md`
 - `ADR-0011-gitengine-command-expansion-and-folder-picker.md`
+- `ADR-0012-multi-account-provider-and-device-flow.md`

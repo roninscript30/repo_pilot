@@ -33,14 +33,20 @@ export function resolveGitRuntime(): GitRuntime {
  * Build the GitHub provider bound to the active credential store.
  * The provider resolves its token lazily via the store, so the same
  * instance can serve any authenticated account.
+ *
+ * When `accountLogin` is provided the provider reads exactly that
+ * account's token, enabling one provider instance per connected account
+ * (multi-account switching). When omitted it falls back to the first
+ * stored account.
  */
-export function resolveProvider(store: CredentialStore): Provider {
+export function resolveProvider(store: CredentialStore, accountLogin: string | null = null): Provider {
   const client = new GitHubApiClient(async () => {
-    const accounts = await store.listAccounts("github");
-    if (accounts.length === 0) {
+    const login =
+      accountLogin ?? (await store.listAccounts("github"))[0] ?? null;
+    if (login === null) {
       return null;
     }
-    return store.getToken("github", accounts[0] ?? "");
+    return store.getToken("github", login);
   });
   return new GitHubProvider(client);
 }

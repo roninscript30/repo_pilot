@@ -3,13 +3,17 @@ import { useNavigate } from "react-router-dom";
 import { Avatar } from "@/components/ui/Avatar";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { Icon } from "@/components/ui/Icon";
+import { AddAccountDialog } from "@/features/auth/AddAccountDialog";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizations } from "@/hooks/use-account";
 
 /** Avatar menu with account details, organizations, and sign-out. */
 export function AccountMenu() {
   const [open, setOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const account = useAuthStore((state) => state.account);
+  const accounts = useAuthStore((state) => state.accounts);
+  const switchAccount = useAuthStore((state) => state.switchAccount);
   const signOut = useAuthStore((state) => state.signOut);
   const credentialKind = useAuthStore((state) => state.credentialKind);
   const isPersistent = useAuthStore((state) => state.isPersistent);
@@ -75,6 +79,50 @@ export function AccountMenu() {
           </div>
         ) : null}
       </div>
+      {accounts.length > 1 ? (
+        <div className="border-t border-surface-100 px-2 py-1.5 dark:border-surface-700/60">
+          <p className="px-1 pb-1 text-2xs font-semibold tracking-wide text-surface-400 uppercase">
+            Switch account
+          </p>
+          <div className="flex flex-col gap-0.5">
+            {accounts.map((entry) => {
+              const isActive = entry.login === account.login;
+              return (
+                <button
+                  key={entry.login}
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    if (!isActive) {
+                      void switchAccount(entry.login);
+                    }
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-surface-100 dark:hover:bg-surface-700"
+                >
+                  <Avatar name={entry.displayName} src={entry.avatarUrl} size="sm" />
+                  <span className="min-w-0 flex-1 truncate text-surface-700 dark:text-surface-200">
+                    {entry.login}
+                  </span>
+                  {isActive ? (
+                    <Icon name="check" size={13} className="text-success-500" />
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(false);
+          setAddOpen(true);
+        }}
+        className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-surface-700 transition-colors hover:bg-surface-100 dark:text-surface-200 dark:hover:bg-surface-700"
+      >
+        <Icon name="plus" size={15} />
+        Add account
+      </button>
       <button
         type="button"
         onClick={() => navigate("/dashboard")}
@@ -91,6 +139,7 @@ export function AccountMenu() {
         <Icon name="x" size={15} />
         Sign out
       </button>
+      <AddAccountDialog open={addOpen} onClose={() => setAddOpen(false)} />
     </DropdownMenu>
   );
 }

@@ -6,7 +6,7 @@ Last Updated: 2026-08-07
 
 ## Current Stage
 
-Phase 0 foundation complete; Phase 1 UI/UX build complete (initial application commit `b2cd37b`); feature-module Repository IDE refactor complete and committed (`199b3d6`) along with the Repo Pilot rebrand and the frontend split into its own `frontend/` npm workspace. Next: push/pull/fetch coverage, desktop verification.
+Phase 0 foundation complete; Phase 1 UI/UX build complete (initial application commit `b2cd37b`); feature-module Repository IDE refactor complete and committed (`199b3d6`) along with the Repo Pilot rebrand and the frontend split into its own `frontend/` npm workspace. **Phase 1.5 in progress: Slice 1 "Account platform" (multi-account + OAuth Device Flow, ADR-0012) is complete and uncommitted; Slice 2 "Native Git engine" (system-git clone/network + all GitOperations + commit graph) is next.**
 
 ## Completed
 
@@ -33,22 +33,21 @@ Phase 0 foundation complete; Phase 1 UI/UX build complete (initial application c
 - Rust GitEngine expansion (gix 0.68.0): `git_file_diff`, `git_compare_refs`, `git_merge_preview`, `git_sync_log`, `pick_repository_folder`, and `git_worktree_status` full shape (staged/unstaged/untracked/ignored + per-file stats + tracking ahead/behind). Capabilities include `dialog:default`; cargo check + clippy clean.
 - Quality gates green: typecheck, lint (0 warnings), build (bundle size warning only), 94 Vitest tests (10 files), 8 Playwright e2e tests (dashboard routes stubbed so no live API dependency).
 - Commit `199b3d6`: feature-module Repository IDE refactor, Repo Pilot rebrand (GitOS → Repo Pilot across UI, storage keys, Rust crate/types, bundle id, Docker image), frontend moved into `frontend/` npm workspace, memory `README.md`s renamed (index/catalog/registry).
+- **Phase 1.5 Slice 1 "Account platform" (ADR-0012)**: multi-account `useAuthStore` (accounts + active + epoch; validate-and-restore sessions, switch/remove/sign-out), account-bound `ProviderRegistry` (per-login provider instances) + shared `queryClient` (cache clear on account change), GitHub OAuth Device Flow (`GitHubDeviceFlowClient` w/ `VITE_GITHUB_CLIENT_ID`, `GithubDeviceFlowView`, `AddAccountDialog`, SignInPage two-path, Settings accounts card, AccountMenu switcher), Rust `open_external` command + `services/open-external.ts`. Tests now 105 Vitest (11 files) + 9 e2e.
 
 ## In Progress
 
-- Interactive desktop verification (`npm run tauri dev` run through the UI, including the native folder picker and the new diff/compare/sync commands).
-- Local Git operation coverage in the Rust shell: push, pull, fetch, restore, checkout, rename-branch, cherry-pick, revert, reset, tag, stash, compare-branches currently return `unsupported` (UI renders an amber warning).
+- **Phase 1.5 Slice 2 "Native Git engine"**: system-git clone/fetch/pull/push + all remaining GitOperations (restore/checkout/rename-branch/reset/tag/stash/cherry-pick/revert/rebase/merge/squash/compare), `git_commit_graph` (full DAG + refs), `git://progress` + `git://repo-changed` events (notify watcher).
+- Interactive desktop verification (`npm run tauri dev` run through the UI, including device flow, the native folder picker, and the new diff/compare/sync commands).
 
 ## Not Started
 
-- OAuth device flow
 - GitLab/Gitea/Forgejo providers behind the Provider port
 - Release pipeline
 - Intelligence layer (platform vision)
 
 ## Next Likely Work
 
-- Implement push/pull/fetch and remaining GitRuntime operations in lib.rs.
-- Interactive desktop verification of the repository workspace / Git-engine activities.
-- OAuth device flow behind the auth session model.
-- Second provider (GitLab or Gitea) behind the Provider port.
+- Slice 2: clone/push/pull/fetch via system git; remaining GitOperations; commit graph; git events.
+- Slice 3: Commit center + Sync center; Slice 4: Compare center + diff experience; Slice 5: Branch explorer + interactive branch graph; Slice 6: PR + Issues workspaces; Slice 7: repo activity + persistent per-account tabs + repo sync sources.
+- Register a real GitHub OAuth App and set `VITE_GITHUB_CLIENT_ID` for production device flow.

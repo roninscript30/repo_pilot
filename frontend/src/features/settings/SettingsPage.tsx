@@ -7,6 +7,7 @@ import { Card, CardHeader } from "@/components/ui/Card";
 import { Dialog } from "@/components/ui/Dialog";
 import { Icon } from "@/components/ui/Icon";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { AddAccountDialog } from "@/features/auth/AddAccountDialog";
 import { useAuthStore } from "@/stores/auth-store";
 import { useThemeStore, type ThemePreference } from "@/stores/theme-store";
 import { useWorkspaceStore } from "@/features/workspace/store";
@@ -18,11 +19,14 @@ import { resolveGitRuntime } from "@/services/runtime";
  * engine state, and preference maintenance.
  */
 export function SettingsPage() {
+  const accounts = useAuthStore((state) => state.accounts);
   const account = useAuthStore((state) => state.account);
-  const signOut = useAuthStore((state) => state.signOut);
+  const switchAccount = useAuthStore((state) => state.switchAccount);
+  const removeAccount = useAuthStore((state) => state.removeAccount);
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
-  const [signOutOpen, setSignOutOpen] = useState(false);
+  const [removeLogin, setRemoveLogin] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
   const navigate = useNavigate();
 
   const runtime = resolveGitRuntime();
@@ -35,28 +39,55 @@ export function SettingsPage() {
       </div>
 
       <Card>
-        <CardHeader title="Account" subtitle="Signed-in provider identity" />
-        <div className="flex items-center justify-between gap-3 p-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <Avatar name={account?.login ?? "?"} src={account?.avatarUrl ?? null} size="md" />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-surface-900 dark:text-surface-100">
-                {account?.displayName ?? account?.login ?? "No account"}
-              </p>
-              {account ? (
-                <p className="flex items-center gap-1.5 text-2xs text-surface-400">
-                  <Icon name="org" size={11} />
-                  {account.login}
-                </p>
-              ) : null}
-            </div>
-          </div>
-          {account ? (
-            <Button size="sm" variant="secondary" onClick={() => setSignOutOpen(true)}>
-              Sign out
+        <CardHeader
+          title="Accounts"
+          subtitle="Connected GitHub accounts"
+          action={
+            <Button size="sm" variant="secondary" onClick={() => setAddOpen(true)}>
+              <Icon name="plus" size={13} />
+              Add account
             </Button>
-          ) : null}
-        </div>
+          }
+        />
+        {accounts.length === 0 ? (
+          <p className="px-4 py-4 text-sm text-surface-500">No connected accounts.</p>
+        ) : (
+          <ul className="divide-y divide-surface-100 dark:divide-surface-700/60">
+            {accounts.map((entry) => {
+              const isActive = entry.login === account?.login;
+              return (
+                <li key={entry.login} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Avatar name={entry.displayName} src={entry.avatarUrl} size="md" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-surface-900 dark:text-surface-100">
+                        {entry.displayName}
+                      </p>
+                      <p className="flex items-center gap-1.5 text-2xs text-surface-400">
+                        <Icon name="org" size={11} />
+                        {entry.login}
+                        <span className="text-surface-300 dark:text-surface-600">·</span>
+                        {entry.scopes.length > 0 ? entry.scopes.join(", ") : "no scopes reported"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {isActive ? (
+                      <Badge tone="success">Active</Badge>
+                    ) : (
+                      <Button size="sm" variant="ghost" onClick={() => void switchAccount(entry.login)}>
+                        Switch
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => setRemoveLogin(entry.login)}>
+                      <Icon name="trash" size={13} />
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </Card>
 
       <Card>
@@ -121,32 +152,34 @@ export function SettingsPage() {
       </Card>
 
       <Dialog
-        open={signOutOpen}
-        onClose={() => setSignOutOpen(false)}
-        title="Sign out"
-        description={`Sign out of ${account?.login ?? "your account"}? Remote data stays cached until removed.`}
+        open={removeLogin !== null}
+        onClose={() => setRemoveLogin(null)}
+        title="Remove account"
+        description={`Remove ${removeLogin ?? "this account"} from Repo Pilot? Its token will be deleted from ${removeLogin === account?.login ? "the keyring" : "stored credentials"}.`}
         footer={
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setSignOutOpen(false)}>
+            <Button size="sm" variant="ghost" onClick={() => setRemoveLogin(null)}>
               Cancel
             </Button>
             <Button
               size="sm"
               variant="danger"
               onClick={() => {
-                setSignOutOpen(false);
-                if (account) void signOut(account.login);
+                if (removeLogin) void removeAccount(removeLogin);
+                setRemoveLogin(null);
               }}
             >
-              Sign out
+              Remove
             </Button>
           </div>
         }
       >
         <p className="text-sm text-surface-600 dark:text-surface-300">
-          You can sign back in with your token at any time.
+          You can sign this account back in at any time.
         </p>
       </Dialog>
+
+      <AddAccountDialog open={addOpen} onClose={() => setAddOpen(false)} />
     </div>
   );
 }

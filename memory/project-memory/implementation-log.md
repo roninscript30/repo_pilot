@@ -8,6 +8,13 @@ This log records meaningful project progress in chronological order.
 
 ## 2026-08-07
 
+- **Phase 1.5 Slice 1 — Account platform (multi-account + OAuth Device Flow).** See ADR-0012.
+  - `useAuthStore` rewritten for multi-account: `accounts[]` + active `account` (back-compat getter) + `epoch`; `signInWithToken` upserts+activates, `loadStoredSessions` validates every stored token and restores all valid accounts (honors `auth.activeAccount` preference), `switchAccount`, `removeAccount` (falls back to remaining), `signOut` (removes one account). Expired/revoked tokens are omitted at restore.
+  - `ProviderRegistry` now caches one provider per account (`github:<login>`) and `setActiveAccount` selects the active one; `resolveProvider(store, accountLogin?)` binds a provider's token read to one login. Shared `services/query-client.ts` singleton; account changes call `queryClient.clear()` so provider queries refetch under the new account.
+  - GitHub OAuth Device Flow: `providers/github/device-flow.ts` (`GitHubDeviceFlowClient`, `client_id` from `VITE_GITHUB_CLIENT_ID` w/ placeholder default, CSP already allows `github.com`), `GithubDeviceFlowView` (code + URI + copy/reopen + polling incl. slow_down/expired/denied), `AddAccountDialog`, `SignInPage` ("Continue with GitHub" primary + PAT fallback), `SettingsPage` accounts card (switch/remove/add + scopes), `AccountMenu` switch list + add.
+  - New Rust `open_external(url)` command (platform opener via `std::process::Command`, refuses non-HTTP) + `services/open-external.ts` (invoke with `window.open` fallback). No new crates.
+  - Also ran `cargo fmt` on `src-tauri/src/lib.rs`: the committed file was NOT fmt-clean under the local rustfmt (13 diffs at HEAD — pre-existing toolchain mismatch); normalizing it makes `cargo fmt --check` pass.
+  - Tests: 105 Vitest (11 files; added auth-store multi-account cases + device-flow unit tests), 9 Playwright e2e (added device-flow sign-in-path test). All gates green.
 - Fixed `[vite:css] @import must precede all other statements` warning: moved the highlight.js `@import` to the top of `frontend/src/index.css`, before the `@tailwind` directives.
 
 ## 2026-08-06

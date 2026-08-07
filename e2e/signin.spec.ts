@@ -204,4 +204,36 @@ test.describe("sign in (returning users)", () => {
     await expect(page.getByRole("heading", { level: 1, name: /Mona/ })).toBeVisible();
     await expect(page.getByText("octocat/hello-world")).toBeVisible();
   });
+
+  test("starts the GitHub device flow and shows the user code", async ({ page }) => {
+    await page.route("https://github.com/login/device/code", (route) =>
+      route.fulfill({
+        status: 200,
+        headers: { "Access-Control-Allow-Origin": "*" },
+        json: {
+          device_code: "dc_123",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://github.com/login/device",
+          expires_in: 900,
+          interval: 5,
+        },
+      }),
+    );
+    await page.route("https://github.com/login/oauth/access_token", (route) =>
+      route.fulfill({
+        status: 200,
+        headers: { "Access-Control-Allow-Origin": "*" },
+        json: { error: "authorization_pending" },
+      }),
+    );
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "Continue with GitHub" }).click();
+
+    await expect(page.getByText("Enter this code at")).toBeVisible();
+    await expect(page.getByText("ABCD-EFGH")).toBeVisible();
+
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("button", { name: "Continue with GitHub" })).toBeVisible();
+  });
 });
