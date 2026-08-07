@@ -1,9 +1,9 @@
+/* Syntax highlighting for code blocks (github-dark works in both themes). */
+@import "highlight.js/styles/github-dark.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* Syntax highlighting for code blocks (github-dark works in both themes). */
-@import "highlight.js/styles/github-dark.css";
 
 @layer base {
   :root {

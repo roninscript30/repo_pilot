@@ -2,9 +2,13 @@
 
 Status: Active
 Owner: Project Maintainers
-Last Updated: 2026-08-06
+Last Updated: 2026-08-07
 
 This log records meaningful project progress in chronological order.
+
+## 2026-08-07
+
+- Fixed `[vite:css] @import must precede all other statements` warning: moved the highlight.js `@import` to the top of `frontend/src/index.css`, before the `@tailwind` directives.
 
 ## 2026-08-06
 
