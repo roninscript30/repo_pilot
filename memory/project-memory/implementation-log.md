@@ -80,3 +80,12 @@ This log records meaningful project progress in chronological order.
 - Made the initial application commit `b2cd37b` "initial application: GitOS Phase 1 UI/UX build" — the Phase 1 UI/UX tree (design system, app shell, onboarding gate, dashboard, repository browser, code explorer, commit history + unified diff viewer, collaboration tabs, sandbox, local repos, Rust/Tauri shell, CI, Docker) is now committed.
 - The feature-module Repository IDE refactor documented below remains staged/uncommitted on top of it and is the next commit to land.
 - Next: commit the feature-module refactor + Git-engine workspaces + GitEngine expansion; interactive desktop verification (native folder picker, diff/compare/sync commands); implement push/pull/fetch and the remaining `unsupported` operations in `git_run_operation`/`git_run_in_sandbox`.
+
+## Repo Pilot Rebrand + Frontend Split + Commit (2026-08-07)
+
+- Committed `199b3d6` "feat: feature-module repository IDE, frontend split, Repo Pilot rebrand": the feature-module Repository IDE refactor, Git-engine workspaces, GitEngine expansion, and ADRs 0010/0011 all landed (195 files, +4285/−1083).
+- Rebranded the product from GitOS to **Repo Pilot**: display text, storage keys (`repoPilot:preferences`, `repoPilot.pinnedRepositories`, `repo-pilot-sandbox-seed`), Rust crate/type names (`RepoPilotError`/`RepoPilotResult`, lib `repo_pilot`), bundle id `com.repopilot.app`, keyring service name, Docker image `repo-pilot`, all KB docs, and persistent memory.
+- Restructured the repo: the React app moved into `frontend/` as its own npm workspace (root `package.json` orchestrates via `workspaces: ["frontend"]`); `src-tauri/` unchanged; `tauri.conf.json` `frontendDist` → `../frontend/dist`; Vite `root: "."`; Docker/CI updated.
+- Renamed the memory `README.md`s: `memory/index.md`, `features/catalog.md`, `skills/index.md`, `decisions/registry.md`, `project-memory/index.md`; updated all cross-references.
+- All gates re-verified after the change: typecheck, lint, 94 unit tests, build (`frontend/dist`), 8 e2e, `cargo check` + `clippy -D warnings`.
+- Next: interactive desktop verification, then push/pull/fetch and the remaining `unsupported` operations.

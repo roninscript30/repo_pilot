@@ -6,7 +6,7 @@ Last Updated: 2026-08-07
 
 ## Current Stage
 
-Phase 0 foundation complete; Phase 1 UI/UX build complete (initial application commit `b2cd37b`); feature-module Repository IDE refactor complete (workspace shell, `/repo/:owner/:name/:activity` repository workspace with Git-engine activities, settings page) but staged/uncommitted on top of it. Next: commit the refactor, push/pull/fetch coverage, desktop verification.
+Phase 0 foundation complete; Phase 1 UI/UX build complete (initial application commit `b2cd37b`); feature-module Repository IDE refactor complete and committed (`199b3d6`) along with the Repo Pilot rebrand and the frontend split into its own `frontend/` npm workspace. Next: push/pull/fetch coverage, desktop verification.
 
 ## Completed
 
@@ -32,10 +32,10 @@ Phase 0 foundation complete; Phase 1 UI/UX build complete (initial application c
 - Settings page: account/appearance/runtime/workspace cleanup/forget local repos/sign-out.
 - Rust GitEngine expansion (gix 0.68.0): `git_file_diff`, `git_compare_refs`, `git_merge_preview`, `git_sync_log`, `pick_repository_folder`, and `git_worktree_status` full shape (staged/unstaged/untracked/ignored + per-file stats + tracking ahead/behind). Capabilities include `dialog:default`; cargo check + clippy clean.
 - Quality gates green: typecheck, lint (0 warnings), build (bundle size warning only), 94 Vitest tests (10 files), 8 Playwright e2e tests (dashboard routes stubbed so no live API dependency).
+- Commit `199b3d6`: feature-module Repository IDE refactor, Repo Pilot rebrand (GitOS → Repo Pilot across UI, storage keys, Rust crate/types, bundle id, Docker image), frontend moved into `frontend/` npm workspace, memory `README.md`s renamed (index/catalog/registry).
 
 ## In Progress
 
-- Commit of the feature-module Repository IDE refactor (rename moves, workspace shell, Git-engine activities, GitEngine expansion, ADRs 0010/0011) — staged/uncommitted on top of `b2cd37b`.
 - Interactive desktop verification (`npm run tauri dev` run through the UI, including the native folder picker and the new diff/compare/sync commands).
 - Local Git operation coverage in the Rust shell: push, pull, fetch, restore, checkout, rename-branch, cherry-pick, revert, reset, tag, stash, compare-branches currently return `unsupported` (UI renders an amber warning).
 
@@ -48,7 +48,6 @@ Phase 0 foundation complete; Phase 1 UI/UX build complete (initial application c
 
 ## Next Likely Work
 
-- Commit the feature-module Repository IDE refactor.
 - Implement push/pull/fetch and remaining GitRuntime operations in lib.rs.
 - Interactive desktop verification of the repository workspace / Git-engine activities.
 - OAuth device flow behind the auth session model.
