@@ -144,3 +144,13 @@ This log records meaningful project progress in chronological order.
 - **BranchExplorer rework**: right card is now the graph canvas; header actions depend on the selected ref chip (badge + Clear for remote/tag/head); clicking a commit opens `CommitInspector` inline (mapped via `toCommitSummary`, `fullName="local"` placeholder, `localPath={path}`); branch list card unchanged (create/checkout/rename/delete + dropdowns).
 - Gates: typecheck/lint clean, build size-warning only, Vitest 147 (18 files), e2e 8/10 (same pre-existing signin flakes on clean HEAD).
 - Next: Slice 6 — PR + Issues workspaces with Provider mutations.
+
+## Phase 1.5 Slice 6 — PR + Issues Provider Mutations (2026-08-08)
+
+- Committed `c94884f`; docs sync on top.
+- Port: `Provider` gained `createPullRequest`, `updatePullRequest`, `mergePullRequest`, `submitPullRequestReview`, `addIssueComment`, `updateIssue`, `setIssueLabels` with input types (`PullRequestCreateInput/UpdateInput/MergeInput/ReviewInput`, `IssueUpdateInput`).
+- Adapter: `GitHubApiClient.request`-based REST — POST `/repos/{fullName}/pulls`, PATCH `/pulls/{n}`, PUT `/pulls/{n}/merge` (`merge_method`), POST `/pulls/{n}/reviews` (APPROVE/REQUEST_CHANGES/COMMENT), POST `/issues/{n}/comments`, PATCH `/issues/{n}`, PUT `/issues/{n}/labels`. `mergePullRequest` re-fetches the PR after merging.
+- Hooks: pulls (`useCreatePullRequest`, `useMergePullRequest`, `useSubmitPullRequestReview`, `usePullRequestAction` comment-or-review, `useRemoteBranches`) and issues (`useUpdateIssue`, `useAddIssueComment`, `useSetIssueLabels`, `useIssueComments`); all invalidate `["repository", fullName, …]` keys.
+- UI: `PullsTab` — New-PR dialog (`NewPullRequestDialog.tsx`, remote branch selects with base preselect, title/body), PR-detail actions (Approve / Request changes dialog, Merge dialog with merge/squash/rebase, comment composer with comment-vs-review-comment mode in `PullActions.tsx`). `IssuesTab` — comment thread + composer, Close/Reopen toggle, label manager (add/remove chips, PUT full list).
+- Tests: 7 new provider mutation tests (stubbed `client.request`), full suite now 154 Vitest (18 files). typecheck/lint/build clean; e2e still 8/10 (2 signin failures environmental).
+- Next: Slice 7 — repo activity + persistent per-account tabs + repo sync sources; then final full-gate pass, docs/ADR sync if needed.
