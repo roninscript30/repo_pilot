@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useCreateIssue, useIssues } from "@/features/issues/hooks";
+import { useAddIssueComment, useCreateIssue, useIssueComments, useIssues, useSetIssueLabels, useUpdateIssue } from "@/features/issues/hooks";
 import type { Issue } from "@/domain/models/issue";
 import { timeAgo } from "@/lib/format";
 import { Card } from "@/components/ui/Card";
@@ -10,6 +10,7 @@ import { Tag } from "@/components/ui/Tag";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { TextField } from "@/components/ui/TextField";
+import { Spinner } from "@/components/ui/Spinner";
 import { TextArea } from "@/components/ui/TextArea";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -137,6 +138,166 @@ function CreateIssueDialog({ fullName, onClose }: { fullName: string; onClose: (
   );
 }
 
+function IssueCommentsSection({ fullName, issue }: { fullName: string; issue: Issue }) {
+  const comments = useIssueComments(fullName, issue.number);
+  return (
+    <div className="border-t border-surface-100 dark:border-surface-700/60">
+      {comments.isLoading ? (
+        <div className="flex justify-center py-3"><Spinner size="sm" /></div>
+      ) : (comments.data ?? []).length > 0 ? (
+        <ul className="divide-y divide-surface-100 dark:divide-surface-700/60">
+          {(comments.data ?? []).map((comment) => (
+            <li key={comment.id} className="flex gap-2 px-4 py-2.5">
+              <Avatar name={comment.author.login} src={comment.author.avatarUrl} size="xs" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 text-2xs text-surface-400">
+                  <span className="font-medium text-surface-700 dark:text-surface-300">{comment.author.login}</span>
+                  <span>commented {timeAgo(comment.createdAt)}</span>
+                </div>
+                <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-surface-700 dark:text-surface-300">
+                  {comment.body}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <IssueComposer fullName={fullName} number={issue.number} />
+    </div>
+  );
+}
+
+function IssueStateToggle({ fullName, issue }: { fullName: string; issue: Issue }) {
+  const { toast } = useToast();
+  const update = useUpdateIssue(fullName, issue.number);
+  return (
+    <Button
+      size="sm"
+      variant={issue.state === "open" ? "secondary" : "primary"}
+      onClick={() =>
+        update.mutate(
+          { state: issue.state === "open" ? "closed" : "open" },
+          {
+            onSuccess: () =>
+              toast({
+                title: issue.state === "open" ? "Issue closed" : "Issue reopened",
+                tone: "success",
+              }),
+            onError: (err) =>
+              toast({ title: err instanceof Error ? err.message : "Could not update issue state.", tone: "error" }),
+          },
+        )
+      }
+      disabled={update.isPending}
+    >
+      {issue.state === "open" ? "Close issue" : "Reopen"}
+    </Button>
+  );
+}
+
+function IssueComposer({ fullName, number }: { fullName: string; number: number }) {
+  const { toast } = useToast();
+  const addComment = useAddIssueComment(fullName, number);
+  const [body, setBody] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function submit() {
+    if (body.trim().length === 0) return;
+    setError(null);
+    addComment.mutate(body.trim(), {
+      onSuccess: () => {
+        setBody("");
+        toast({ title: "Comment posted", tone: "success" });
+      },
+      onError: (err) => setError(err instanceof Error ? err.message : "Could not post comment."),
+    });
+  }
+
+  return (
+    <div className="space-y-2 border-t border-surface-100 p-2.5 dark:border-surface-700/60">
+      <TextArea
+        value={body}
+        onChange={(event) => setBody(event.target.value)}
+        placeholder="Leave a comment…"
+        rows={3}
+      />
+      {error ? <p role="alert" className="text-xs text-danger-600">{error}</p> : null}
+      <div className="flex justify-end">
+        <Button size="sm" onClick={submit} disabled={body.trim().length === 0 || addComment.isPending}>
+          {addComment.isPending ? "Posting…" : "Comment"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function IssueLabelManager({ fullName, issue }: { fullName: string; issue: Issue }) {
+  const { toast } = useToast();
+  const setLabels = useSetIssueLabels(fullName, issue.number);
+  const [pending, setPending] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const labels = issue.labels;
+
+  function apply(next: string[]) {
+    setBusy(true);
+    setLabels.mutate(next, {
+      onSuccess: () => {
+        setBusy(false);
+        toast({ title: "Labels updated", tone: "success" });
+      },
+      onError: (err) => {
+        setBusy(false);
+        toast({ title: err instanceof Error ? err.message : "Could not update labels.", tone: "error" });
+      },
+    });
+  }
+
+  function addLabel() {
+    const name = pending.trim();
+    if (name.length === 0) return;
+    apply([...labels.map((l) => l.name), name]);
+    setPending("");
+  }
+
+  function removeLabel(name: string) {
+    apply(labels.filter((l) => l.name !== name).map((l) => l.name));
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {labels.map((label) => (
+        <span key={label.name} className="inline-flex items-center gap-1">
+          <Tag label={label.name} color={label.color} />
+          <button
+            type="button"
+            aria-label={`Remove label ${label.name}`}
+            onClick={() => removeLabel(label.name)}
+            disabled={busy}
+            className="text-surface-400 transition-colors hover:text-danger-600"
+          >
+            <Icon name="x" size={10} />
+          </button>
+        </span>
+      ))}
+      <span className="inline-flex items-center gap-1">
+        <input
+          value={pending}
+          onChange={(event) => setPending(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              addLabel();
+            }
+          }}
+          placeholder="Add label…"
+          className="h-6 w-28 rounded border border-surface-200 bg-transparent px-1.5 text-2xs text-surface-700 outline-none focus:border-accent-500 dark:border-surface-600 dark:text-surface-200"
+        />
+        {busy ? <Spinner size="sm" /> : null}
+      </span>
+    </div>
+  );
+}
+
 interface IssuesTabProps {
   readonly fullName: string;
 }
@@ -230,17 +391,24 @@ export function IssuesTab({ fullName }: IssuesTabProps) {
               ) : null}
             </div>
             {selected.body ? (
-              <div className="border-t border-surface-100 p-4 text-sm leading-relaxed text-surface-700 dark:border-surface-700/60 dark:text-surface-300">
-                {selected.body.split("\n").map((line, index) => (
-                  <p key={index} className={line.trim() === "" ? "h-3" : ""}>{line}</p>
-                ))}
-              </div>
-            ) : (
-              <div className="border-t border-surface-100 px-4 py-3 text-xs text-surface-500 dark:border-surface-700/60">
-                No description provided.
-              </div>
-            )}
-          </Card>
+          <div className="border-t border-surface-100 p-4 text-sm leading-relaxed text-surface-700 dark:border-surface-700/60 dark:text-surface-300">
+            {selected.body.split("\n").map((line, index) => (
+              <p key={index} className={line.trim() === "" ? "h-3" : ""}>{line}</p>
+            ))}
+          </div>
+        ) : (
+          <div className="border-t border-surface-100 px-4 py-3 text-xs text-surface-500 dark:border-surface-700/60">
+            No description provided.
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2 border-t border-surface-100 px-4 py-2.5 dark:border-surface-700/60">
+          <IssueLabelManager fullName={fullName} issue={selected} />
+          <span className="ml-auto">
+            <IssueStateToggle fullName={fullName} issue={selected} />
+          </span>
+        </div>
+        <IssueCommentsSection fullName={fullName} issue={selected} />
+      </Card>
         ) : (
           <Card><EmptyState title="Select an issue" description="Choose an issue to see its details." /></Card>
         )}

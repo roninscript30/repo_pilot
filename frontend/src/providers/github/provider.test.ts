@@ -138,3 +138,125 @@ describe("GitHubProvider", () => {
     });
   });
 });
+
+function rawPullRequest(number: number, state = "open"): Record<string, unknown> {
+  return {
+    id: number,
+    number,
+    title: "PR",
+    state,
+    html_url: "https://github.com/octocat/hello/pull/" + number,
+    draft: false,
+    merged_at: null,
+    closed_at: null,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    user: { login: "octocat", avatar_url: null },
+    base: { ref: "main" },
+    head: { ref: "fix" },
+    additions: 1,
+    deletions: 0,
+    changed_files: 1,
+    mergeable: true,
+    review_decision: "none",
+  };
+}
+
+describe("provider mutations", () => {
+  it("createPullRequest posts to /pulls with base/head/title", async () => {
+    const client = stubClient({ request: vi.fn().mockResolvedValue(rawPullRequest(7)) });
+    const provider = new GitHubProvider(client);
+    await provider.createPullRequest("octocat/hello", {
+      title: "Fix bug",
+      base: "main",
+      head: "fix/bug",
+      body: "Closes #1",
+    });
+    expect(client.request).toHaveBeenCalledWith(
+      { method: "POST", body: { title: "Fix bug", base: "main", head: "fix/bug", body: "Closes #1" } },
+      "/repos/octocat/hello/pulls",
+    );
+  });
+
+  it("updatePullRequest patches title and state only when provided", async () => {
+    const client = stubClient({ request: vi.fn().mockResolvedValue(rawPullRequest(7, "closed")) });
+    const provider = new GitHubProvider(client);
+    await provider.updatePullRequest("octocat/hello", 7, { state: "closed" });
+    expect(client.request).toHaveBeenCalledWith(
+      { method: "PATCH", body: { state: "closed" } },
+      "/repos/octocat/hello/pulls/7",
+    );
+  });
+
+  it("mergePullRequest PUTs the merge method and refetches the PR", async () => {
+    const client = stubClient({
+      request: vi.fn().mockResolvedValue({ merged: true }),
+      get: vi.fn().mockResolvedValue(rawPullRequest(7, "closed")),
+    });
+    const provider = new GitHubProvider(client);
+    const pull = await provider.mergePullRequest("octocat/hello", 7, { method: "squash" });
+    expect(client.request).toHaveBeenCalledWith(
+      { method: "PUT", body: { merge_method: "squash" } },
+      "/repos/octocat/hello/pulls/7/merge",
+    );
+    expect(pull.number).toBe(7);
+  });
+
+  it("submitPullRequestReview maps events to GitHub values", async () => {
+    const client = stubClient({
+      request: vi.fn().mockResolvedValue({
+        id: 1,
+        user: { login: "octocat", avatar_url: null },
+        state: "APPROVED",
+        body: null,
+        submitted_at: null,
+      }),
+    });
+    const provider = new GitHubProvider(client);
+    const review = await provider.submitPullRequestReview("octocat/hello", 7, { event: "approve", body: "LGTM" });
+    expect(client.request).toHaveBeenCalledWith(
+      { method: "POST", body: { event: "APPROVE", body: "LGTM" } },
+      "/repos/octocat/hello/pulls/7/reviews",
+    );
+    expect(review.state).toBe("approved");
+  });
+
+  it("addIssueComment posts to the issues comments endpoint", async () => {
+    const client = stubClient({ request: vi.fn().mockResolvedValue({ id: 1, body: "hi", user: { login: "octocat", avatar_url: null }, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" }) });
+    const provider = new GitHubProvider(client);
+    await provider.addIssueComment("octocat/hello", 7, "hello world");
+    expect(client.request).toHaveBeenCalledWith(
+      { method: "POST", body: { body: "hello world" } },
+      "/repos/octocat/hello/issues/7/comments",
+    );
+  });
+
+  it("updateIssue patches only provided fields", async () => {
+    const client = stubClient({ request: vi.fn().mockResolvedValue(rawPullRequest(5, "closed")) });
+    const provider = new GitHubProvider(client);
+    await provider.updateIssue("octocat/hello", 5, { state: "closed" });
+    expect(client.request).toHaveBeenCalledWith(
+      { method: "PATCH", body: { state: "closed" } },
+      "/repos/octocat/hello/issues/5",
+    );
+  });
+
+  it("setIssueLabels PUTs the full label list", async () => {
+    const client = stubClient({
+      request: vi.fn().mockResolvedValue([
+        { name: "bug", color: "d73a4a" },
+        { name: "docs", color: "0075ca" },
+      ]),
+    });
+    const provider = new GitHubProvider(client);
+    const labels = await provider.setIssueLabels("octocat/hello", 5, ["bug", "docs"]);
+    expect(client.request).toHaveBeenCalledWith(
+      { method: "PUT", body: { labels: ["bug", "docs"] } },
+      "/repos/octocat/hello/issues/5/labels",
+    );
+    expect(labels).toEqual([
+      { name: "bug", color: "d73a4a" },
+      { name: "docs", color: "0075ca" },
+    ]);
+  });
+});

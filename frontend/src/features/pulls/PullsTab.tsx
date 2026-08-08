@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { MergePullRequestDialog, PullRequestCommentComposer, ReviewPullRequestDialog } from "@/features/pulls/PullActions";
+import { NewPullRequestDialog } from "@/features/pulls/NewPullRequestDialog";
 import { usePullRequestDetail, usePullRequests } from "@/features/pulls/hooks";
 import { usePullRequestFiles, usePullRequestCommits, usePullRequestReviews } from "@/features/pulls/hooks";
 import type { PullRequest, PullRequestState } from "@/domain/models/pull-request";
@@ -14,6 +16,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { MarkdownView } from "@/components/markdown/MarkdownView";
 import { DiffViewer } from "@/features/git/components/DiffViewer";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { Button } from "@/components/ui/Button";
 
 const STATE_BADGE: Record<PullRequestState, { label: string; tone: "success" | "danger" | "accent" }> = {
   open: { label: "Open", tone: "success" },
@@ -62,7 +65,7 @@ function PullRequestRow({ pull, selected, onSelect }: { pull: PullRequest; selec
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-2xs text-surface-400">
             <span>#{pull.number}</span>
             <span className="inline-flex items-center gap-1">
-              <Avatar name={pull.author.login} src={pull.author.avatarUrl} size="xs" />
+              <Avatar name={pull.author.login} src={pull.author.avatarUrl} size="sm" />
               {pull.author.login}
             </span>
             <span className="inline-flex items-center gap-1">
@@ -97,6 +100,8 @@ interface PullRequestDetailProps {
 
 function PullRequestDetail({ fullName, pull }: PullRequestDetailProps) {
   const [section, setSection] = useState("files");
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [reviewEvent, setReviewEvent] = useState<"approve" | "request_changes" | null>(null);
   const detail = usePullRequestDetail(fullName, pull.number);
   const files = usePullRequestFiles(fullName, pull.number);
   const commits = usePullRequestCommits(fullName, pull.number);
@@ -142,7 +147,7 @@ function PullRequestDetail({ fullName, pull }: PullRequestDetailProps) {
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-surface-400">
             <span className="inline-flex items-center gap-1.5">
-              <Avatar name={pull.author.login} src={pull.author.avatarUrl} size="xs" />
+              <Avatar name={pull.author.login} src={pull.author.avatarUrl} size="sm" />
               {pull.author.login}
             </span>
             <span>opened {pull.createdAt ? timeAgo(pull.createdAt) : "unknown"}</span>
@@ -169,7 +174,14 @@ function PullRequestDetail({ fullName, pull }: PullRequestDetailProps) {
               <span className="text-danger-700 dark:text-danger-600">−{deletions}</span>
               <span className="ml-2 text-surface-400">{filesData.length} files</span>
             </span>
-            <span className="ml-auto">
+            {pull.state === "open" ? (
+              <span className="ml-auto flex items-center gap-2">
+                <Button size="sm" variant="danger" onClick={() => setReviewEvent("request_changes")}>Request changes</Button>
+                <Button size="sm" variant="ghost" onClick={() => setMergeOpen(true)}>Merge</Button>
+                <Button size="sm" onClick={() => setReviewEvent("approve")}>Approve</Button>
+              </span>
+            ) : null}
+            <span className={pull.state === "open" ? "" : "ml-auto"}>
               <a
                 href={pull.url}
                 target="_blank"
@@ -218,7 +230,7 @@ function PullRequestDetail({ fullName, pull }: PullRequestDetailProps) {
             <ul className="divide-y divide-surface-100 dark:divide-surface-700/60">
               {commitsData.map((commit) => (
                 <li key={commit.sha} className="flex items-center gap-2.5 px-4 py-2">
-                  <Avatar name={commit.author.name} src={commit.author.avatarUrl} size="xs" />
+                  <Avatar name={commit.author.name} src={commit.author.avatarUrl} size="sm" />
                   <span className="min-w-0 flex-1 truncate text-xs text-surface-700 dark:text-surface-300">{commit.subject}</span>
                   <span className="shrink-0 font-mono text-2xs text-surface-400">{commit.shortSha}</span>
                 </li>
@@ -235,7 +247,7 @@ function PullRequestDetail({ fullName, pull }: PullRequestDetailProps) {
             return (
               <Card key={review.id}>
                 <div className="flex items-center gap-2 px-4 py-2.5">
-                  <Avatar name={review.author.login} src={review.author.avatarUrl} size="xs" />
+                  <Avatar name={review.author.login} src={review.author.avatarUrl} size="sm" />
                   <span className="text-xs font-medium text-surface-800 dark:text-surface-200">{review.author.login}</span>
                   <span className={`inline-flex items-center gap-1 text-2xs ${REVIEW_ICON_COLOR[review.state] ?? "text-surface-400"}`}>
                     <Icon name={meta.icon} size={11} /> {meta.label}
@@ -252,6 +264,18 @@ function PullRequestDetail({ fullName, pull }: PullRequestDetailProps) {
           })}
         </div>
       )}
+
+      {pull.state === "open" ? <PullRequestCommentComposer fullName={fullName} pull={pull} /> : null}
+
+      {mergeOpen ? <MergePullRequestDialog fullName={fullName} pull={pull} onClose={() => setMergeOpen(false)} /> : null}
+      {reviewEvent ? (
+        <ReviewPullRequestDialog
+          fullName={fullName}
+          pull={pull}
+          event={reviewEvent}
+          onClose={() => setReviewEvent(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -263,6 +287,7 @@ interface PullsTabProps {
 /** Pull requests workspace: filterable list plus detail inspector. */
 export function PullsTab({ fullName }: PullsTabProps) {
   const [state, setState] = useState<"open" | "closed" | "all">("open");
+  const [createOpen, setCreateOpen] = useState(false);
   const [selectedNumber, setSelectedNumber] = useState<number | null>(null);
   const pulls = usePullRequests(fullName, state);
 
@@ -271,7 +296,7 @@ export function PullsTab({ fullName }: PullsTabProps) {
   return (
     <div className="grid min-h-[480px] grid-cols-1 gap-4 xl:grid-cols-[minmax(340px,440px)_1fr]">
       <div>
-        <div className="mb-2">
+        <div className="mb-2 flex items-center justify-between gap-2">
           <SegmentedControl
             ariaLabel="Pull request state"
             options={[
@@ -285,6 +310,9 @@ export function PullsTab({ fullName }: PullsTabProps) {
               setSelectedNumber(null);
             }}
           />
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Icon name="plus" size={13} /> New pull request
+          </Button>
         </div>
         {pulls.isError ? (
           <ErrorState
@@ -317,6 +345,8 @@ export function PullsTab({ fullName }: PullsTabProps) {
           <Card><EmptyState title="Select a pull request" description="Choose a pull request to review its changes." /></Card>
         )}
       </div>
+
+      {createOpen ? <NewPullRequestDialog fullName={fullName} onClose={() => setCreateOpen(false)} /> : null}
     </div>
   );
 }

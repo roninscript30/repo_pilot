@@ -6,9 +6,9 @@ import type { Issue, IssueComment } from "../models/issue";
 import type { AppNotification } from "../models/notification";
 import type { Organization } from "../models/organization";
 import type { PullRequest } from "../models/pull-request";
+import type { PullRequestReview } from "../models/review";
 import type { Release } from "../models/release";
 import type { Contributor, Repository, RepositoryOverview } from "../models/repository";
-import type { PullRequestReview } from "../models/review";
 import type { Tag } from "../models/tag";
 import type { CheckRun, WorkflowRun } from "../models/workflow";
 
@@ -73,6 +73,34 @@ export interface Provider {
   listPullRequestFiles(fullName: string, number: number): Promise<readonly FileChangeDetail[]>;
   listPullRequestReviews(fullName: string, number: number): Promise<readonly PullRequestReview[]>;
 
+  /** Create a pull request (provider mutation). */
+  createPullRequest(
+    fullName: string,
+    input: PullRequestCreateInput,
+  ): Promise<PullRequest>;
+  /** Update title/body/state of a pull request (provider mutation). */
+  updatePullRequest(
+    fullName: string,
+    number: number,
+    input: PullRequestUpdateInput,
+  ): Promise<PullRequest>;
+  /** Merge an open, mergeable pull request (provider mutation). */
+  mergePullRequest(
+    fullName: string,
+    number: number,
+    input: PullRequestMergeInput,
+  ): Promise<PullRequest>;
+  /** Submit a pull request review (provider mutation). */
+  submitPullRequestReview(
+    fullName: string,
+    number: number,
+    input: PullRequestReviewInput,
+  ): Promise<PullRequestReview>;
+  /** Add an issue/PR comment (provider mutation). */
+  addIssueComment(fullName: string, number: number, body: string): Promise<IssueComment>;
+  /** Update title/body/state of an issue (provider mutation). */
+  updateIssue(fullName: string, number: number, input: IssueUpdateInput): Promise<Issue>;
+
   listIssues(fullName: string, query: IssuesQuery): Promise<readonly Issue[]>;
   getIssue(fullName: string, number: number): Promise<Issue>;
   listIssueComments(fullName: string, number: number): Promise<readonly IssueComment[]>;
@@ -80,6 +108,8 @@ export interface Provider {
     fullName: string,
     input: { readonly title: string; readonly body?: string },
   ): Promise<Issue>;
+  /** Replace the labels attached to an issue or PR (provider mutation). */
+  setIssueLabels(fullName: string, number: number, labels: readonly string[]): Promise<Issue["labels"]>;
 
   listReleases(fullName: string, limit?: number): Promise<readonly Release[]>;
   listTags(fullName: string, limit?: number): Promise<readonly Tag[]>;
@@ -99,4 +129,39 @@ export interface Provider {
   getFileContents(fullName: string, path: string, ref?: string): Promise<ContentItem | null>;
 
   listOrganizations(limit?: number): Promise<readonly Organization[]>;
+}
+
+
+/** Fields an issue update may change. */
+export interface IssueUpdateInput {
+  readonly title?: string;
+  readonly body?: string;
+  readonly state?: "open" | "closed";
+}
+
+/** Input for creating a pull request through the provider. */
+export interface PullRequestCreateInput {
+  readonly title: string;
+  readonly body?: string;
+  readonly base: string;
+  readonly head: string;
+  readonly draft?: boolean;
+}
+
+/** Fields a pull request update may change. */
+export interface PullRequestUpdateInput {
+  readonly title?: string;
+  readonly body?: string;
+  readonly state?: "open" | "closed";
+}
+
+/** Merge strategy for the merge mutation. */
+export interface PullRequestMergeInput {
+  readonly method: "merge" | "squash" | "rebase";
+}
+
+/** Pull request review submission event. */
+export interface PullRequestReviewInput {
+  readonly body?: string;
+  readonly event: "approve" | "request_changes" | "comment";
 }

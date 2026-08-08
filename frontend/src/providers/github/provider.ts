@@ -1,7 +1,12 @@
 import type {
   BranchList,
+  IssueUpdateInput,
   IssuesQuery,
   Provider,
+  PullRequestCreateInput,
+  PullRequestMergeInput,
+  PullRequestReviewInput,
+  PullRequestUpdateInput,
   PullRequestsQuery,
   RepositoriesQuery,
   TokenValidation,
@@ -327,6 +332,126 @@ export class GitHubProvider implements Provider {
       [perPage(100)],
     );
     return comments.map(mapComment);
+  }
+
+  // -------------------------------------------------------------------
+  // Provider mutations (Slice 6): PR + Issues write operations.
+  // -------------------------------------------------------------------
+
+  async createPullRequest(
+    fullName: string,
+    input: PullRequestCreateInput,
+  ): Promise<PullRequest> {
+    const created = await this.client.request<GitHubPullRequest>(
+      {
+        method: "POST",
+        body: {
+          title: input.title,
+          head: input.head,
+          base: input.base,
+          ...(input.body !== undefined ? { body: input.body } : {}),
+          ...(input.draft !== undefined ? { draft: input.draft } : {}),
+        },
+      },
+      `/repos/${fullName}/pulls`,
+    );
+    return mapPullRequest(created);
+  }
+
+  async updatePullRequest(
+    fullName: string,
+    number: number,
+    input: PullRequestUpdateInput,
+  ): Promise<PullRequest> {
+    const updated = await this.client.request<GitHubPullRequest>(
+      {
+        method: "PATCH",
+        body: {
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.body !== undefined ? { body: input.body } : {}),
+          ...(input.state !== undefined ? { state: input.state } : {}),
+        },
+      },
+      `/repos/${fullName}/pulls/${number}`,
+    );
+    return mapPullRequest(updated);
+  }
+
+  async mergePullRequest(
+    fullName: string,
+    number: number,
+    input: PullRequestMergeInput,
+  ): Promise<PullRequest> {
+    await this.client.request<{ merged: boolean }>(
+      {
+        method: "PUT",
+        body: { merge_method: input.method },
+      },
+      `/repos/${fullName}/pulls/${number}/merge`,
+    );
+    return this.getPullRequest(fullName, number);
+  }
+
+  async submitPullRequestReview(
+    fullName: string,
+    number: number,
+    input: PullRequestReviewInput,
+  ): Promise<PullRequestReview> {
+    const events: Record<PullRequestReviewInput["event"], string> = {
+      approve: "APPROVE",
+      request_changes: "REQUEST_CHANGES",
+      comment: "COMMENT",
+    };
+    const review = await this.client.request<GitHubReview>(
+      {
+        method: "POST",
+        body: {
+          event: events[input.event],
+          ...(input.body !== undefined ? { body: input.body } : {}),
+        },
+      },
+      `/repos/${fullName}/pulls/${number}/reviews`,
+    );
+    return mapReview(review);
+  }
+
+  async addIssueComment(fullName: string, number: number, body: string): Promise<IssueComment> {
+    const comment = await this.client.request<GitHubComment>(
+      { method: "POST", body: { body } },
+      `/repos/${fullName}/issues/${number}/comments`,
+    );
+    return mapComment(comment);
+  }
+
+  async updateIssue(
+    fullName: string,
+    number: number,
+    input: IssueUpdateInput,
+  ): Promise<Issue> {
+    const updated = await this.client.request<GitHubIssue>(
+      {
+        method: "PATCH",
+        body: {
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.body !== undefined ? { body: input.body } : {}),
+          ...(input.state !== undefined ? { state: input.state } : {}),
+        },
+      },
+      `/repos/${fullName}/issues/${number}`,
+    );
+    return mapIssue(updated);
+  }
+
+  async setIssueLabels(
+    fullName: string,
+    number: number,
+    labels: readonly string[],
+  ): Promise<Issue["labels"]> {
+    const result = await this.client.request<{ name: string; color: string }[]>(
+      { method: "PUT", body: { labels: [...labels] } },
+      `/repos/${fullName}/issues/${number}/labels`,
+    );
+    return result.map((label) => ({ name: label.name, color: label.color }));
   }
 
   async createIssue(
