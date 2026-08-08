@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Branch } from "@/domain/models/branch";
 import type { CommitDetail, CommitSummary } from "@/domain/models/commit";
-import type { FileDiff, MergePreview, RefComparison, SyncLog, TagInfo } from "@/domain/models/git";
+import type { CommitGraph, FileDiff, MergePreview, RefComparison, SyncLog, TagInfo } from "@/domain/models/git";
 import type {
   CloneInput,
   FileDiffSpec,
@@ -72,6 +72,11 @@ export class TauriGitRuntime implements GitRuntime {
   async listLocalTags(path: string): Promise<readonly TagInfo[]> {
     this.guard();
     return invoke<TagInfo[]>("git_tag_list", { path });
+  }
+
+  async getCommitGraph(path: string, limit?: number): Promise<CommitGraph> {
+    this.guard();
+    return invoke<CommitGraph>("git_commit_graph", { path, limit });
   }
 
   async compareRefs(path: string, baseRef: string, targetRef: string): Promise<RefComparison> {

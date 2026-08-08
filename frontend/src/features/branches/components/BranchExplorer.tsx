@@ -11,27 +11,46 @@ import { Spinner } from "@/components/ui/Spinner";
 import { TextField } from "@/components/ui/TextField";
 import { useToast } from "@/components/ui/toast-context";
 import {
+  useCommitGraph,
   useLocalBranches,
-  useLocalCommits,
   useLocalWorktree,
   useRunGitOperation,
 } from "@/features/git/hooks";
+import { BranchGraph } from "@/features/branches/components/BranchGraph";
+import { CommitInspector } from "@/features/git/components/CommitInspector";
 import { timeAgo } from "@/lib/format";
 import type { Branch } from "@/domain/models/branch";
+import type { CommitSummary } from "@/domain/models/commit";
+import type { GraphNode, GraphRef } from "@/domain/models/git";
 import type { GitOperation } from "@/domain/ports/git-runtime";
 
 interface BranchExplorerProps {
   readonly path: string;
 }
 
+/** Map a graph node to the commit model the inspector consumes. */
+function toCommitSummary(node: GraphNode): CommitSummary {
+  return {
+    sha: node.id,
+    shortSha: node.id.slice(0, 7),
+    message: node.subject,
+    subject: node.subject,
+    author: { name: node.authorName, email: node.authorEmail, login: null, avatarUrl: null },
+    committedAt: new Date(node.time * 1000).toISOString(),
+    parents: node.parents,
+  };
+}
+
 /**
  * The Branches activity: create, checkout, rename and delete local
- * branches, with a commit history pane for the selected branch.
+ * branches, with an interactive commit graph (GitKraken-style canvas)
+ * for the selected branch plus a full commit inspector.
  */
 export function BranchExplorer({ path }: BranchExplorerProps) {
   const { toast } = useToast();
   const worktree = useLocalWorktree(path);
   const branchesQuery = useLocalBranches(path);
+  const graphQuery = useCommitGraph(path, 2000);
   const run = useRunGitOperation(path);
 
   const currentBranch = worktree.data?.currentBranch ?? null;
@@ -42,6 +61,8 @@ export function BranchExplorer({ path }: BranchExplorerProps) {
   const [renameTarget, setRenameTarget] = useState<Branch | null>(null);
   const [newName, setNewName] = useState("");
   const [detail, setDetail] = useState<string | null>(null);
+  const [selectedSha, setSelectedSha] = useState<string | null>(null);
+  const [selectedRef, setSelectedRef] = useState<GraphRef | null>(null);
   const [busy, setBusy] = useState(false);
 
   const filtered = useMemo(() => {
@@ -50,8 +71,11 @@ export function BranchExplorer({ path }: BranchExplorerProps) {
     return branches.filter((branch) => branch.name.toLowerCase().includes(needle));
   }, [branches, filter]);
 
-  const detailBranch = branches.find((branch) => branch.name === detail) ?? null;
-  const commits = useLocalCommits(path, detailBranch?.name ?? null, 20, detailBranch !== null);
+  const nodes = useMemo(() => graphQuery.data?.nodes ?? [], [graphQuery.data?.nodes]);
+  const selectedNode = useMemo(
+    () => nodes.find((node) => node.id === selectedSha) ?? null,
+    [nodes, selectedSha],
+  );
 
   function execute(operation: GitOperation, payload?: Record<string, unknown>) {
     setBusy(true);
@@ -69,6 +93,15 @@ export function BranchExplorer({ path }: BranchExplorerProps) {
         }
       },
     });
+  }
+
+  function graphBranchAction(label: string, icon: "gitBranch" | "pencil" | "trash", action: () => void) {
+    return (
+      <Button key={label} size="sm" variant="secondary" disabled={busy} onClick={action}>
+        <Icon name={icon} size={12} />
+        {label}
+      </Button>
+    );
   }
 
   if (worktree.isLoading || branchesQuery.isLoading) {
@@ -94,8 +127,12 @@ export function BranchExplorer({ path }: BranchExplorerProps) {
     );
   }
 
+  const selectedBranch = selectedRef !== null && selectedRef.kind === "branch"
+    ? branches.find((branch) => branch.name === selectedRef.name) ?? null
+    : null;
+
   return (
-    <div className="grid min-h-[480px] grid-cols-1 items-start gap-4 px-6 py-5 xl:grid-cols-[minmax(360px,460px)_1fr]">
+    <div className="grid min-h-[480px] grid-cols-1 items-start gap-4 px-6 py-5 xl:grid-cols-[minmax(300px,380px)_1fr]">
       <Card>
         <CardHeader
           title="Branches"
@@ -110,7 +147,7 @@ export function BranchExplorer({ path }: BranchExplorerProps) {
         <div className="border-b border-surface-100 px-3 py-2 dark:border-surface-700/60">
           <SearchInput value={filter} onChange={setFilter} placeholder="Filter branches…" />
         </div>
-        <ul className="max-h-[420px] overflow-y-auto">
+        <ul className="max-h-[520px] overflow-y-auto">
           {filtered.length === 0 ? (
             <li className="px-3 py-8 text-center text-xs text-surface-500">
               {filter ? "No branches match the filter." : "No branches yet."}
@@ -138,40 +175,89 @@ export function BranchExplorer({ path }: BranchExplorerProps) {
 
       <Card>
         <CardHeader
-          title={detailBranch ? detailBranch.name : "Branch history"}
-          subtitle={detailBranch ? "Recent commits" : "Select a branch to inspect"}
+          title="Commit graph"
+          subtitle="Click a commit or a ref · drag to pan, scroll to zoom"
+          action={
+            selectedRef !== null && selectedRef.kind === "branch" && selectedBranch ? (
+              <div className="flex items-center gap-2">
+                {graphBranchAction("Checkout", "gitBranch", () =>
+                  execute("checkout", { branch: selectedBranch.name }),
+                )}
+                {graphBranchAction("Rename…", "pencil", () => {
+                  setRenameTarget(selectedBranch);
+                  setNewName(selectedBranch.name);
+                })}
+                {graphBranchAction("Delete", "trash", () =>
+                  execute("delete-branch", { branch: selectedBranch.name, force: false }),
+                )}
+              </div>
+            ) : selectedRef !== null && selectedRef.kind !== "branch" ? (
+              <div className="flex items-center gap-2">
+                <Badge tone="neutral">{selectedRef.kind}</Badge>
+                <Button size="sm" variant="ghost" onClick={() => setSelectedRef(null)}>
+                  Clear
+                </Button>
+              </div>
+            ) : null
+          }
         />
-        {detailBranch ? (
-          commits.isLoading ? (
-            <div className="flex justify-center py-10">
-              <Spinner label="Loading history…" size="sm" />
-            </div>
-          ) : (commits.data ?? []).length === 0 ? (
-            <p className="px-4 py-10 text-center text-xs text-surface-500">
-              No commits on this branch.
-            </p>
-          ) : (
-            <ul className="divide-y divide-surface-100 dark:divide-surface-700/60">
-              {(commits.data ?? []).map((commit) => (
-                <li key={commit.sha} className="flex items-center gap-3 px-4 py-2.5">
-                  <Icon name="gitCommit" size={13} className="shrink-0 text-surface-400" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-medium text-surface-700 dark:text-surface-300">
-                      {commit.subject}
-                    </p>
-                    <p className="truncate text-2xs text-surface-400">
-                      {commit.author.name} · {timeAgo(commit.committedAt)}
-                    </p>
-                  </div>
-                  <code className="shrink-0 text-2xs text-surface-400">{commit.shortSha}</code>
-                </li>
-              ))}
-            </ul>
-          )
+        {graphQuery.isLoading ? (
+          <div className="flex justify-center py-14">
+            <Spinner label="Building commit graph…" size="sm" />
+          </div>
+        ) : graphQuery.isError ? (
+          <div className="p-6">
+            <EmptyState
+              title="Graph unavailable"
+              description={
+                graphQuery.error instanceof Error
+                  ? graphQuery.error.message
+                  : "The commit graph could not be built."
+              }
+            />
+          </div>
         ) : (
-          <p className="px-4 py-10 text-center text-xs text-surface-500">
-            Pick a branch to see its recent commits.
-          </p>
+          <div className="p-3">
+            <BranchGraph
+              nodes={nodes}
+              selectedSha={selectedSha}
+              selectedRef={selectedRef}
+              onSelectCommit={(sha) => {
+                setSelectedSha(sha);
+                setSelectedRef(null);
+              }}
+              onSelectRef={(ref) => {
+                setSelectedRef(ref);
+                if (ref !== null && ref.kind === "branch") setDetail(ref.name);
+              }}
+            />
+            {selectedNode ? (
+              <div className="mt-3 border-t border-surface-100 pt-3 dark:border-surface-700/60">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <Badge tone={selectedNode.isMerge ? "accent" : "neutral"}>
+                    {selectedNode.isMerge ? "merge commit" : "commit"}
+                  </Badge>
+                  <code className="text-2xs text-surface-400">{selectedNode.id.slice(0, 12)}</code>
+                  {selectedNode.refs.length > 0 ? (
+                    selectedNode.refs.map((ref) => (
+                      <Badge key={`${ref.kind}-${ref.name}`} tone={ref.kind === "head" ? "neutral" : "accent"}>
+                        {ref.name}
+                      </Badge>
+                    ))
+                  ) : null}
+                </div>
+                <CommitInspector
+                  fullName="local"
+                  commit={toCommitSummary(selectedNode)}
+                  localPath={path}
+                />
+              </div>
+            ) : (
+              <p className="mt-3 border-t border-surface-100 pt-3 text-center text-2xs text-surface-400 dark:border-surface-700/60">
+                {detail ? `Showing history reachable from ${detail}` : "Select a commit to inspect it."}
+              </p>
+            )}
+          </div>
         )}
       </Card>
 

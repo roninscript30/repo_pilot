@@ -1,6 +1,7 @@
 import type { Branch } from "../models/branch";
 import type { CommitDetail, CommitSummary } from "../models/commit";
 import type {
+  CommitGraph,
   FileDiff,
   MergePreview,
   RefComparison,
@@ -112,6 +113,8 @@ export interface GitRuntime {
   diffFiles(path: string, baseRef: string, targetRef: string): Promise<readonly FileDiff[]>;
   /** Local tag names and the commits they point at. */
   listLocalTags(path: string): Promise<readonly TagInfo[]>;
+  /** Full commit DAG with ref decorations, newest first (cap via limit). */
+  getCommitGraph(path: string, limit?: number): Promise<CommitGraph>;
   compareRefs(path: string, baseRef: string, targetRef: string): Promise<RefComparison>;
   mergePreview(path: string, headRef: string, targetRef: string): Promise<MergePreview>;
   getSyncLog(path: string): Promise<SyncLog>;

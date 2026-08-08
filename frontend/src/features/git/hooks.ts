@@ -56,6 +56,7 @@ const LOCAL_KEYS = {
   diffFiles: (path: string, base: string, target: string) =>
     [...LOCAL_PREFIX, "diff-files", path, base, target] as const,
   tags: (path: string) => [...LOCAL_PREFIX, "tags", path] as const,
+  commitGraph: (path: string, limit: number) => [...LOCAL_PREFIX, "commit-graph", path, limit] as const,
 };
 
 export function useLocalWorktree(path: string | null, enabled = true) {
@@ -123,6 +124,16 @@ export function useLocalTags(path: string | null, enabled = true) {
   return useQuery({
     queryKey: LOCAL_KEYS.tags(path ?? ""),
     queryFn: () => resolveGitRuntime().listLocalTags(path as string),
+    enabled: enabled && path !== null && path.length > 0,
+    staleTime: 30_000,
+  });
+}
+
+/** Full commit DAG (nodes + ref decorations) for the branch graph. */
+export function useCommitGraph(path: string | null, limit = 2000, enabled = true) {
+  return useQuery({
+    queryKey: LOCAL_KEYS.commitGraph(path ?? "", limit),
+    queryFn: () => resolveGitRuntime().getCommitGraph(path as string, limit),
     enabled: enabled && path !== null && path.length > 0,
     staleTime: 30_000,
   });

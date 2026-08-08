@@ -39,6 +39,32 @@ export interface DiffHunk {
   readonly lines: readonly DiffLine[];
 }
 
+/** A ref decorating a commit in the commit graph. */
+export interface GraphRef {
+  readonly name: string;
+  /** "branch" | "remote" | "tag" | "head". */
+  readonly kind: string;
+}
+
+/** One commit node in the full commit DAG. */
+export interface GraphNode {
+  readonly id: string;
+  readonly parents: readonly string[];
+  readonly refs: readonly GraphRef[];
+  readonly subject: string;
+  readonly authorName: string;
+  readonly authorEmail: string;
+  /** Unix seconds. */
+  readonly time: number;
+  readonly isMerge: boolean;
+}
+
+/** The full commit graph of a repository, newest commits first. */
+export interface CommitGraph {
+  readonly headRef: string | null;
+  readonly nodes: readonly GraphNode[];
+}
+
 /** A local tag pointing at a commit (peeled). */
 export interface TagInfo {
   readonly name: string;
