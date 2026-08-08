@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { Branch } from "@/domain/models/branch";
 import type { CommitDetail, CommitSummary } from "@/domain/models/commit";
-import type { FileDiff, MergePreview, RefComparison, SyncLog } from "@/domain/models/git";
+import type { FileDiff, MergePreview, RefComparison, SyncLog, TagInfo } from "@/domain/models/git";
 import type { CloneInput, FileDiffSpec, GitOperation } from "@/domain/ports/git-runtime";
 import { providerRegistry } from "@/providers/registry";
 import { onGitProgress, onRepoChanged, type GitProgressEvent } from "@/services/git-events";
@@ -53,6 +53,9 @@ const LOCAL_KEYS = {
   mergePreview: (path: string, head: string, target: string) =>
     [...LOCAL_PREFIX, "merge-preview", path, head, target] as const,
   syncLog: (path: string) => [...LOCAL_PREFIX, "sync-log", path] as const,
+  diffFiles: (path: string, base: string, target: string) =>
+    [...LOCAL_PREFIX, "diff-files", path, base, target] as const,
+  tags: (path: string) => [...LOCAL_PREFIX, "tags", path] as const,
 };
 
 export function useLocalWorktree(path: string | null, enabled = true) {
@@ -97,6 +100,31 @@ export function useFileDiff(path: string | null, spec: FileDiffSpec | null, enab
     queryFn: () => resolveGitRuntime().getFileDiff(path as string, spec as FileDiffSpec),
     enabled: enabled && path !== null && spec !== null && path.length > 0,
     staleTime: 10_000,
+  });
+}
+
+/** Per-file diffs between any two refs (branches/tags/SHAs). */
+export function useDiffFiles(
+  path: string | null,
+  baseRef: string | null,
+  targetRef: string | null,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: LOCAL_KEYS.diffFiles(path ?? "", baseRef ?? "", targetRef ?? ""),
+    queryFn: () => resolveGitRuntime().diffFiles(path as string, baseRef as string, targetRef as string),
+    enabled: enabled && path !== null && baseRef !== null && targetRef !== null && path.length > 0,
+    staleTime: 15_000,
+  });
+}
+
+/** Local tags for the compare source/target pickers. */
+export function useLocalTags(path: string | null, enabled = true) {
+  return useQuery({
+    queryKey: LOCAL_KEYS.tags(path ?? ""),
+    queryFn: () => resolveGitRuntime().listLocalTags(path as string),
+    enabled: enabled && path !== null && path.length > 0,
+    staleTime: 30_000,
   });
 }
 
@@ -236,4 +264,4 @@ export function useCloneRepository() {
   });
 }
 
-export type { Branch, CommitDetail, CommitSummary, FileDiff, MergePreview, RefComparison, SyncLog };
+export type { Branch, CommitDetail, CommitSummary, FileDiff, MergePreview, RefComparison, SyncLog, TagInfo };

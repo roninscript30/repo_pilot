@@ -18,6 +18,33 @@ export interface WorktreeFile {
   readonly unstagedDeletions: number;
 }
 
+export type DiffLineKind = "context" | "add" | "remove";
+
+/** One changed or context line within a diff hunk. */
+export interface DiffLine {
+  readonly kind: DiffLineKind;
+  /** Line number in the old file (null for added lines). */
+  readonly oldNo: number | null;
+  /** Line number in the new file (null for removed lines). */
+  readonly newNo: number | null;
+  readonly text: string;
+}
+
+/** A contiguous change window with context lines and its start numbers. */
+export interface DiffHunk {
+  readonly oldStart: number;
+  readonly oldLines: number;
+  readonly newStart: number;
+  readonly newLines: number;
+  readonly lines: readonly DiffLine[];
+}
+
+/** A local tag pointing at a commit (peeled). */
+export interface TagInfo {
+  readonly name: string;
+  readonly id: string;
+}
+
 /** A file-level diff with a unified patch and line counts. */
 export interface FileDiff {
   readonly path: string;
@@ -27,6 +54,8 @@ export interface FileDiff {
   /** Unified diff text; null for binary or oversized files. */
   readonly patch: string | null;
   readonly binary: boolean;
+  /** Structured line hunks from the backend (single source of truth). */
+  readonly hunks?: readonly DiffHunk[];
 }
 
 export interface RefComparisonFile {

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Branch } from "@/domain/models/branch";
 import type { CommitDetail, CommitSummary } from "@/domain/models/commit";
-import type { FileDiff, MergePreview, RefComparison, SyncLog } from "@/domain/models/git";
+import type { FileDiff, MergePreview, RefComparison, SyncLog, TagInfo } from "@/domain/models/git";
 import type {
   CloneInput,
   FileDiffSpec,
@@ -62,6 +62,16 @@ export class TauriGitRuntime implements GitRuntime {
   async getFileDiff(path: string, spec: FileDiffSpec): Promise<FileDiff | null> {
     this.guard();
     return invoke<FileDiff | null>("git_file_diff", { path, spec });
+  }
+
+  async diffFiles(path: string, baseRef: string, targetRef: string): Promise<readonly FileDiff[]> {
+    this.guard();
+    return invoke<FileDiff[]>("git_diff_files", { path, baseRef, targetRef });
+  }
+
+  async listLocalTags(path: string): Promise<readonly TagInfo[]> {
+    this.guard();
+    return invoke<TagInfo[]>("git_tag_list", { path });
   }
 
   async compareRefs(path: string, baseRef: string, targetRef: string): Promise<RefComparison> {

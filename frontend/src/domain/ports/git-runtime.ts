@@ -5,6 +5,7 @@ import type {
   MergePreview,
   RefComparison,
   SyncLog,
+  TagInfo,
   WorktreeFile,
 } from "../models/git";
 
@@ -107,6 +108,10 @@ export interface GitRuntime {
   listCommits(path: string, branch?: string, limit?: number): Promise<readonly CommitSummary[]>;
   getCommit(path: string, sha: string): Promise<CommitDetail>;
   getFileDiff(path: string, spec: FileDiffSpec): Promise<FileDiff | null>;
+  /** Per-file diffs between any two resolvable refs (branches/tags/SHAs). */
+  diffFiles(path: string, baseRef: string, targetRef: string): Promise<readonly FileDiff[]>;
+  /** Local tag names and the commits they point at. */
+  listLocalTags(path: string): Promise<readonly TagInfo[]>;
   compareRefs(path: string, baseRef: string, targetRef: string): Promise<RefComparison>;
   mergePreview(path: string, headRef: string, targetRef: string): Promise<MergePreview>;
   getSyncLog(path: string): Promise<SyncLog>;

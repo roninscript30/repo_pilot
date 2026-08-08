@@ -238,6 +238,8 @@ export function WorktreeView({ path }: WorktreeViewProps) {
                       : selectedFile.unstagedDeletions,
                 }}
                 patch={diff.data?.patch ?? null}
+                binary={diff.data?.binary ?? false}
+                {...(diff.data?.hunks ? { hunks: diff.data.hunks } : {})}
               />
             ) : (
               <p className="px-3 py-10 text-center text-xs text-surface-500">

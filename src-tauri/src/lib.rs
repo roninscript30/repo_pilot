@@ -21,6 +21,7 @@ use tauri::{Emitter, Manager};
 use tempfile::TempDir;
 use thiserror::Error;
 
+mod diff;
 mod git_graph;
 mod git_system;
 
@@ -194,8 +195,8 @@ struct WorktreeStatus {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WorktreeFile {
-    path: String,
-    state: String,
+    pub path: String,
+    pub state: String,
     staged_additions: u32,
     staged_deletions: u32,
     unstaged_additions: u32,
@@ -204,22 +205,24 @@ struct WorktreeFile {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct FileDiff {
-    path: String,
-    status: String,
-    additions: u32,
-    deletions: u32,
-    patch: Option<String>,
-    binary: bool,
+pub(crate) struct FileDiff {
+    pub path: String,
+    pub status: String,
+    pub additions: u32,
+    pub deletions: u32,
+    pub patch: Option<String>,
+    pub binary: bool,
+    /// Structured line hunks (single source of truth; patch is derived).
+    pub hunks: Option<Vec<crate::diff::DiffHunk>>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RefComparisonFile {
-    path: String,
-    status: String,
-    additions: u32,
-    deletions: u32,
+pub(crate) struct RefComparisonFile {
+    pub path: String,
+    pub status: String,
+    pub additions: u32,
+    pub deletions: u32,
 }
 
 #[derive(Serialize)]
@@ -441,7 +444,7 @@ fn open_repo(path: &str) -> RepoPilotResult<Repository> {
     open(path).map_err(git_err)
 }
 
-fn worktree_root(repo: &Repository) -> PathBuf {
+pub(crate) fn worktree_root(repo: &Repository) -> PathBuf {
     repo.worktree()
         .map(|worktree| worktree.base().to_path_buf())
         .unwrap_or_else(|| repo.path().to_path_buf())
@@ -487,12 +490,12 @@ fn count_reachable(repo: &Repository, tip: ObjectId, exclude: ObjectId) -> RepoP
 }
 
 /// True for content that cannot be line-diffed safely.
-fn is_binary(bytes: &[u8]) -> bool {
+pub(crate) fn is_binary(bytes: &[u8]) -> bool {
     bytes.contains(&0)
 }
 
 /// Count added/removed lines between two text blobs using a Myers line diff.
-fn line_stats(before: &[u8], after: &[u8]) -> (u32, u32) {
+pub(crate) fn line_stats(before: &[u8], after: &[u8]) -> (u32, u32) {
     if is_binary(before) || is_binary(after) {
         return (0, 0);
     }
@@ -512,12 +515,12 @@ fn line_count(bytes: &[u8]) -> u32 {
         .count() as u32
 }
 
-fn read_blob_bytes(repo: &Repository, id: ObjectId) -> RepoPilotResult<Vec<u8>> {
+pub(crate) fn read_blob_bytes(repo: &Repository, id: ObjectId) -> RepoPilotResult<Vec<u8>> {
     Ok(repo.find_blob(id).map_err(git_err)?.data.to_vec())
 }
 
 /// Recursively locate a blob in a tree by repository-relative path.
-fn blob_at_tree(
+pub(crate) fn blob_at_tree(
     repo: &Repository,
     tree_id: ObjectId,
     path: &str,
@@ -660,7 +663,7 @@ fn staged_files_with_stats(repo: &Repository) -> RepoPilotResult<Vec<WorktreeFil
     Ok(out)
 }
 
-fn get_worktree_status(repo: &Repository) -> RepoPilotResult<WorktreeStatus> {
+pub(crate) fn get_worktree_status(repo: &Repository) -> RepoPilotResult<WorktreeStatus> {
     let head_name = repo.head_name().ok().flatten().map(|name| name.to_string());
     let head_sha = repo
         .head_commit()
@@ -1006,20 +1009,24 @@ async fn git_get_commit(args: GitGetCommitArgs) -> RepoPilotResult<CommitDetail>
 }
 
 fn resolve_commit_id(repo: &Repository, name: &str) -> RepoPilotResult<ObjectId> {
-    let rev = if name == "HEAD" {
-        name.to_string()
-    } else {
-        format!("refs/heads/{}", name)
-    };
-    let rev_bstr: &BStr = rev.as_bytes().as_bstr();
-    let commit = repo
-        .rev_parse_single(rev_bstr)
-        .map_err(git_err)?
-        .object()
-        .map_err(git_err)?
-        .try_into_commit()
-        .map_err(git_err)?;
-    Ok(commit.id().detach())
+    let candidates = [
+        "HEAD".to_string(),
+        format!("refs/heads/{}", name),
+        format!("refs/remotes/{}", name),
+        format!("refs/tags/{}", name),
+        name.to_string(),
+    ];
+    for rev in candidates {
+        let rev_bstr: &BStr = rev.as_bytes().as_bstr();
+        if let Ok(parsed) = repo.rev_parse_single(rev_bstr) {
+            if let Ok(object) = parsed.object() {
+                if let Ok(commit) = object.try_into_commit() {
+                    return Ok(commit.id().detach());
+                }
+            }
+        }
+    }
+    Err(RepoPilotError::InvalidRef(name.to_string()))
 }
 
 /// Collect path/status/line-stat rows for the diff between two commits.
@@ -1123,7 +1130,7 @@ fn overlapping_paths(ours: Vec<RefComparisonFile>, theirs: Vec<RefComparisonFile
 }
 
 /// Diff summary between two commits (base -> target).
-fn tree_changes_between(
+pub(crate) fn tree_changes_between(
     repo: &Repository,
     base_id: ObjectId,
     target_id: ObjectId,
@@ -1207,20 +1214,27 @@ async fn git_file_diff(args: GitFileDiffArgs) -> RepoPilotResult<Option<FileDiff
     };
 
     let (additions, deletions) = line_stats(&before, &after);
-    let patch = if spec.base == "HEAD" || spec.target == "index" {
-        render_unified_patch(&before, &after)
-    } else {
-        Some(String::new())
-    };
     let binary = is_binary(&before) || is_binary(&after);
+    let (patch, hunks) = if binary {
+        (None, None)
+    } else {
+        let hunks = crate::diff::structured_diff(&before, &after);
+        let patch = if hunks.is_empty() {
+            Some(String::new())
+        } else {
+            Some(crate::diff::patch_from_hunks(&hunks))
+        };
+        (patch, Some(hunks))
+    };
 
     Ok(Some(FileDiff {
         path: spec.path,
         status: status.to_string(),
         additions,
         deletions,
-        patch: if binary { None } else { patch },
+        patch,
         binary,
+        hunks,
     }))
 }
 
@@ -2248,6 +2262,8 @@ pub fn run() {
             git_system::git_clone,
             git_system::git_git_version,
             git_graph::git_commit_graph,
+            diff::git_diff_files,
+            diff::git_tag_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

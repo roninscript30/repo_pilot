@@ -1,6 +1,6 @@
 import type { Branch } from "@/domain/models/branch";
 import type { CommitDetail, CommitSummary } from "@/domain/models/commit";
-import type { FileDiff, MergePreview, RefComparison, SyncLog } from "@/domain/models/git";
+import type { FileDiff, MergePreview, RefComparison, SyncLog, TagInfo } from "@/domain/models/git";
 import type {
   GitOperation,
   GitOperationResult,
@@ -49,6 +49,14 @@ export class WebFallbackGitRuntime implements GitRuntime {
 
   async getFileDiff(): Promise<FileDiff | null> {
     return null;
+  }
+
+  async diffFiles(): Promise<readonly FileDiff[]> {
+    return [];
+  }
+
+  async listLocalTags(): Promise<readonly TagInfo[]> {
+    return [];
   }
 
   async compareRefs(): Promise<RefComparison> {
