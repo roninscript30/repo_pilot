@@ -4,6 +4,8 @@ import type { PullRequest } from "@/domain/models/pull-request";
 import type { Issue } from "@/domain/models/issue";
 import type { WorkflowRun } from "@/domain/models/workflow";
 import type { CommitSummary } from "@/domain/models/commit";
+import type { Release } from "@/domain/models/release";
+import type { Contributor } from "@/domain/models/repository";
 import { providerRegistry } from "@/providers/registry";
 
 const MAX_SCOPED_REPOS = 3;
@@ -29,11 +31,21 @@ export interface DashboardScopedRun extends Scoped {
   readonly run: WorkflowRun;
 }
 
+export interface DashboardScopedRelease extends Scoped {
+  readonly release: Release;
+}
+
+export interface DashboardScopedContributor extends Scoped {
+  readonly contributor: Contributor;
+}
+
 interface DashboardData {
   readonly pullRequests: readonly DashboardScopedPull[];
   readonly issues: readonly DashboardScopedIssue[];
   readonly commits: readonly DashboardScopedCommit[];
   readonly workflowRuns: readonly DashboardScopedRun[];
+  readonly releases: readonly DashboardScopedRelease[];
+  readonly contributors: readonly DashboardScopedContributor[];
 }
 
 /**
@@ -81,6 +93,22 @@ export function useCollaborationDashboard(login: string | null, repositories: re
     })),
   });
 
+  const releasesQueries = useQueries({
+    queries: fullNames.map((fullName) => ({
+      queryKey: ["dashboard", fullName, "releases"],
+      queryFn: () => provider.listReleases(fullName, 3),
+      staleTime: 60_000,
+    })),
+  });
+
+  const contributorsQueries = useQueries({
+    queries: fullNames.map((fullName) => ({
+      queryKey: ["dashboard", fullName, "contributors"],
+      queryFn: () => provider.listContributors(fullName, 5),
+      staleTime: 5 * 60_000,
+    })),
+  });
+
   const pullRequests = pullsQueries.flatMap((query, index) =>
     (query.data ?? []).map((pull) => ({ pull, fullName: fullNames[index] ?? "" })),
   );
@@ -99,5 +127,13 @@ export function useCollaborationDashboard(login: string | null, repositories: re
     (query.data ?? []).slice(0, 2).map((run) => ({ run, fullName: fullNames[index] ?? "" })),
   ).sort((a, b) => b.run.updatedAt.localeCompare(a.run.updatedAt));
 
-  return { pullRequests, issues, commits, workflowRuns };
+  const releases = releasesQueries.flatMap((query, index) =>
+    (query.data ?? []).slice(0, 2).map((release) => ({ release, fullName: fullNames[index] ?? "" })),
+  ).sort((a, b) => (b.release.publishedAt ?? "").localeCompare(a.release.publishedAt ?? ""));
+
+  const contributors = contributorsQueries.flatMap((query, index) =>
+    (query.data ?? []).map((contributor) => ({ contributor, fullName: fullNames[index] ?? "" })),
+  ).sort((a, b) => b.contributor.contributions - a.contributor.contributions);
+
+  return { pullRequests, issues, commits, workflowRuns, releases, contributors };
 }

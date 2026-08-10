@@ -11,6 +11,7 @@ import type {
   RepositoriesQuery,
   TokenValidation,
 } from "@/domain/ports/provider";
+import type { RepoActivityEvent } from "@/domain/models/activity";
 import type { BranchComparison } from "@/domain/models/branch";
 import { type CommitDetail, type CommitSummary } from "@/domain/models/commit";
 import type { Issue, IssueComment } from "@/domain/models/issue";
@@ -27,6 +28,7 @@ import { GitHubApiError } from "./api";
 import type { GitHubApiClient } from "./api";
 import {
   mapAccount,
+  mapActivityEvent,
   mapBranch,
   mapCheckRun,
   mapCommit,
@@ -47,6 +49,7 @@ import {
   mapWorkflowRun,
 } from "./mappers";
 import type {
+  GitHubActivityEvent,
   GitHubBranch,
   GitHubCheckRun,
   GitHubComment,
@@ -132,6 +135,25 @@ export class GitHubProvider implements Provider {
       perPage(query.limit ?? 30),
     ]);
     return results.items.map(mapRepository);
+  }
+
+  async listStarredRepositories(limit = 30): Promise<readonly Repository[]> {
+    const repos = await this.client.get<GitHubRepository[]>("/user/starred", [perPage(limit)]);
+    return repos.map(mapRepository);
+  }
+
+  async listOrganizationRepositories(org: string, limit = 30): Promise<readonly Repository[]> {
+    const repos = await this.client.get<GitHubRepository[]>(`/orgs/${org}/repos`, [perPage(limit)]);
+    return repos.map(mapRepository);
+  }
+
+  async listRecentRepositories(limit = 30): Promise<readonly Repository[]> {
+    const repos = await this.client.get<GitHubRepository[]>("/user/repos", [
+      perPage(limit),
+      ["sort", "updated"],
+      ["affiliation", "owner,collaborator,organization_member"],
+    ]);
+    return repos.map(mapRepository);
   }
 
   async getRepository(fullName: string): Promise<Repository> {
@@ -252,6 +274,14 @@ export class GitHubProvider implements Provider {
       contributors: [],
       isMock: false,
     };
+  }
+
+  async listRepositoryActivity(fullName: string, limit = 30): Promise<readonly RepoActivityEvent[]> {
+    const events = await this.client.get<GitHubActivityEvent[]>(
+      `/repos/${fullName}/events`,
+      [perPage(limit ?? 30)],
+    );
+    return events.map(mapActivityEvent);
   }
 
   async listPullRequests(fullName: string, query: PullRequestsQuery): Promise<readonly PullRequest[]> {

@@ -1240,7 +1240,53 @@ async fn git_file_diff(args: GitFileDiffArgs) -> RepoPilotResult<Option<FileDiff
 
 #[tauri::command]
 async fn git_compare_refs(args: GitCompareRefsArgs) -> RepoPilotResult<RefComparison> {
+    use crate::diff::{diff_worktree_against, WORKTREE_REF};
+
     let repo = open_repo(&args.path)?;
+    let base_is_worktree = args.base_ref == WORKTREE_REF;
+    let target_is_worktree = args.target_ref == WORKTREE_REF;
+
+    if base_is_worktree && target_is_worktree {
+        return Ok(RefComparison {
+            base_ref: args.base_ref,
+            target_ref: args.target_ref,
+            merge_base: None,
+            ahead_by: 0,
+            behind_by: 0,
+            commits: Vec::new(),
+            files: Vec::new(),
+            conflict_paths: Vec::new(),
+        });
+    }
+    if base_is_worktree || target_is_worktree {
+        // The working tree has no commit graph of its own; divergence is
+        // meaningless, but the changed-files list is the worktree diff.
+        let other_id = if base_is_worktree {
+            resolve_commit_id(&repo, &args.target_ref)?
+        } else {
+            resolve_commit_id(&repo, &args.base_ref)?
+        };
+        let files = diff_worktree_against(&repo, other_id, base_is_worktree)?
+            .into_iter()
+            .map(|file| RefComparisonFile {
+                path: file.path,
+                status: file.status,
+                additions: file.additions,
+                deletions: file.deletions,
+            })
+            .collect();
+        return Ok(RefComparison {
+            base_ref: args.base_ref,
+            target_ref: args.target_ref,
+            merge_base: None,
+            ahead_by: 0,
+            behind_by: 0,
+            commits: Vec::new(),
+            files,
+            conflict_paths: Vec::new(),
+        });
+    }
+
     let base_id = resolve_commit_id(&repo, &args.base_ref)?;
     let target_id = resolve_commit_id(&repo, &args.target_ref)?;
 
@@ -2171,6 +2217,40 @@ fn open_in_browser(url: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Open a linked local working-tree folder in the system file manager.
+///
+/// Powers the "Open local" action on the repository workspace header.
+/// The path is validated to exist as a directory before being handed to
+/// the platform opener, so a stale link cannot be misused as a command
+/// target.
+#[tauri::command]
+async fn open_folder(path: String) -> RepoPilotResult<()> {
+    let target = std::path::Path::new(&path);
+    if !target.is_dir() {
+        return Err(RepoPilotError::Unsupported(format!(
+            "No local folder found at: {path}"
+        )));
+    }
+    open_in_folder(&path)?;
+    Ok(())
+}
+
+fn open_in_folder(path: &str) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(path).spawn()?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer").arg(path).spawn()?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(path).spawn()?;
+    }
+    Ok(())
+}
+
 /// Emit a `git://repo-changed` event for a repository path. The frontend
 /// invalidates its `["local", ...]` queries in response.
 pub(crate) fn emit_repo_changed(app: &tauri::AppHandle, path: &str) {
@@ -2258,6 +2338,7 @@ pub fn run() {
             git_run_in_sandbox,
             pick_repository_folder,
             open_external,
+            open_folder,
             git_watch_paths,
             git_system::git_clone,
             git_system::git_git_version,

@@ -271,3 +271,51 @@ export interface GitHubSearchIssues {
 /** /repos/{fullName}/issues POST body result */
 export type GitHubCreatedIssue = GitHubIssue;
 
+
+/**
+ * A GitHub repository event (GET /repos/{owner}/{repo}/events).
+ *
+ * Payload shapes vary by event type; only the fields the activity
+ * mapper reads are declared, the rest is `unknown`.
+ */
+export interface GitHubActivityEvent {
+  readonly id: number;
+  readonly type: string;
+  readonly actor: {
+    readonly login: string;
+    readonly avatar_url: string | null;
+  } | null;
+  readonly created_at: string;
+  readonly repo: { readonly name: string } | null;
+  readonly payload: {
+    readonly ref?: string | null;
+    readonly ref_type?: string | null;
+    readonly action?: string | null;
+    readonly size?: number | null;
+    readonly number?: number | null;
+    readonly title?: string | null;
+    readonly description?: string | null;
+    readonly issue?: {
+      readonly number?: number | null;
+      readonly title?: string | null;
+      readonly html_url?: string | null;
+    } | null;
+    readonly pull_request?: {
+      readonly number?: number | null;
+      readonly title?: string | null;
+      readonly html_url?: string | null;
+    } | null;
+    readonly release?: {
+      readonly name?: string | null;
+      readonly tag_name?: string | null;
+      readonly html_url?: string | null;
+    } | null;
+    readonly review?: {
+      readonly html_url?: string | null;
+      readonly state?: string | null;
+    } | null;
+    readonly comment?: {
+      readonly html_url?: string | null;
+    } | null;
+  };
+}

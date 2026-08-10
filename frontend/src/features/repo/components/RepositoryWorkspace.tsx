@@ -7,6 +7,7 @@ import { OverviewTab } from "./OverviewTab";
 import { RepoSettingsView } from "./RepoSettingsView";
 import { RepoActivityRail } from "./RepoActivityRail";
 import { WorkspaceHeader } from "./WorkspaceHeader";
+import { ActivityFeed } from "./ActivityFeed";
 import { LocalRepoGate } from "./LocalRepoGate";
 import {
   REPO_ACTIVITIES,
@@ -147,6 +148,10 @@ export function RepositoryWorkspace() {
           ) : activity === "releases" ? (
             <div className="px-6 py-5">
               <ReleasesTab fullName={repository.fullName} />
+            </div>
+          ) : activity === "activity" ? (
+            <div className="px-6 py-5">
+              <ActivityFeed fullName={repository.fullName} />
             </div>
           ) : activity === "worktree" ? (
             <LocalRepoGate fullName={repository.fullName}>

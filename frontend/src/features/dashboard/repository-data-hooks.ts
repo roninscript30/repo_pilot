@@ -90,6 +90,24 @@ export function useCommitActivity(fullName: string, enabled = true) {
   });
 }
 
+export function useReleases(fullName: string, limit = 5, enabled = true) {
+  return useQuery({
+    queryKey: ["repository", fullName, "releases", limit],
+    queryFn: () => githubProvider().listReleases(fullName, limit),
+    enabled: enabled && fullName.length > 0,
+    staleTime: 60_000,
+  });
+}
+
+export function useContributors(fullName: string, limit = 8, enabled = true) {
+  return useQuery({
+    queryKey: ["repository", fullName, "contributors", limit],
+    queryFn: () => githubProvider().listContributors(fullName, limit),
+    enabled: enabled && fullName.length > 0,
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useRepositoryTree(fullName: string, branch: string | null, enabled = true) {
   return useQuery({
     queryKey: ["repository", fullName, "tree", branch],

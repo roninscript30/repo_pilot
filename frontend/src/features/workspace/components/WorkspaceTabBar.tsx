@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { Icon } from "@/components/ui/Icon";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { getPinnedRepositoryNames } from "@/features/repositories/services/repository-pins";
 import { useWorkspaceStore } from "../store";
 import {
+  isRepoTab,
   nextActiveTabId,
+  repoWorkspacePathForFullName,
+  tabFromPathname,
   tabIcon,
   tabId,
   tabPath,
@@ -68,6 +72,105 @@ function TabBarItem({ tab, isActive, onSelect, onClose }: TabBarItemProps) {
 }
 
 /**
+ * Overflow panel listing every open tab plus quick access to recently
+ * closed and pinned repositories, so tabs stay reachable once the strip
+ * scrolls.
+ */
+function TabOverflowMenu({ onSelect }: { onSelect: (tab: WorkspaceTab) => void }) {
+  const tabs = useWorkspaceStore((state) => state.tabs);
+  const recentlyClosed = useWorkspaceStore((state) => state.recentlyClosed);
+  const clearRecentlyClosed = useWorkspaceStore((state) => state.clearRecentlyClosed);
+  const openTab = useWorkspaceStore((state) => state.openTab);
+  const navigate = useNavigate();
+
+  const openFullNames = useMemo(
+    () => new Set(tabs.filter(isRepoTab).map((tab) => tab.fullName)),
+    [tabs],
+  );
+  const pinnedNotOpen = useMemo(
+    () => getPinnedRepositoryNames().filter((name) => !openFullNames.has(name)).slice(0, 8),
+    [openFullNames],
+  );
+
+  function openPinned(fullName: string) {
+    const tab = tabFromPathname(repoWorkspacePathForFullName(fullName));
+    if (tab) {
+      openTab(tab);
+      navigate(tabPath(tab));
+      onSelect(tab);
+    }
+  }
+
+  const sectionClass = "px-2.5 pt-2 pb-1 text-2xs font-semibold tracking-wide text-surface-400 uppercase";
+  const rowClass =
+    "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] text-surface-700 transition-colors hover:bg-surface-100 dark:text-surface-200 dark:hover:bg-surface-700";
+  const rowIconClass = "shrink-0 text-surface-400";
+
+  return (
+    <div className="w-64 pb-1">
+      <p className={sectionClass}>Open tabs · {tabs.length}</p>
+      {tabs.length === 0 ? (
+        <p className="px-2.5 py-1.5 text-xs text-surface-400">No open tabs.</p>
+      ) : (
+        <ul>
+          {tabs.map((tab) => (
+            <li key={tabId(tab)}>
+              <button type="button" onClick={() => onSelect(tab)} className={rowClass}>
+                <Icon name={tabIcon(tab)} size={13} className={rowIconClass} />
+                <span className="min-w-0 flex-1 truncate">{tabTitle(tab)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className={`${sectionClass} mt-1`}>
+        Recently opened
+        {recentlyClosed.length > 0 ? (
+          <button
+            type="button"
+            onClick={clearRecentlyClosed}
+            className="ml-2 font-semibold text-accent-600 uppercase hover:underline dark:text-accent-500"
+          >
+            Clear
+          </button>
+        ) : null}
+      </p>
+      {recentlyClosed.length === 0 ? (
+        <p className="px-2.5 py-1.5 text-xs text-surface-400">Closed repositories appear here.</p>
+      ) : (
+        <ul>
+          {recentlyClosed.map((tab) => (
+            <li key={tabId(tab)}>
+              <button type="button" onClick={() => onSelect(tab)} className={rowClass}>
+                <Icon name="history" size={13} className={rowIconClass} />
+                <span className="min-w-0 flex-1 truncate">{tab.fullName}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className={`${sectionClass} mt-1`}>Pinned</p>
+      {pinnedNotOpen.length === 0 ? (
+        <p className="px-2.5 py-1.5 text-xs text-surface-400">Pinned repositories appear here.</p>
+      ) : (
+        <ul>
+          {pinnedNotOpen.map((fullName) => (
+            <li key={fullName}>
+              <button type="button" onClick={() => openPinned(fullName)} className={rowClass}>
+                <Icon name="pin" size={13} className={rowIconClass} />
+                <span className="min-w-0 flex-1 truncate">{fullName}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
  * The workspace tab strip: open repositories and pages, VS Code style.
  *
  * Tabs are persisted; closing the active tab navigates to the next one.
@@ -84,6 +187,7 @@ export function WorkspaceTabBar() {
   const closeAll = useWorkspaceStore((state) => state.closeAll);
   const navigate = useNavigate();
   const barRef = useRef<HTMLDivElement>(null);
+  const [overflowOpen, setOverflowOpen] = useState(false);
 
   const selectTab = useCallback(
     (tab: WorkspaceTab) => {
@@ -156,7 +260,27 @@ export function WorkspaceTabBar() {
           />
         );
       })}
-      <div className="ml-auto flex items-center pr-2">
+      <div className="ml-auto flex items-center gap-1 pr-2">
+        <DropdownMenu
+          ariaLabel="All tabs"
+          placement="bottom-end"
+          minWidth={260}
+          open={overflowOpen}
+          onOpenChange={setOverflowOpen}
+          trigger={
+            <Tooltip label="All tabs">
+              <button
+                type="button"
+                aria-label="All tabs"
+                className="flex h-6 w-6 items-center justify-center rounded text-surface-400 transition-colors hover:bg-surface-200 hover:text-surface-800 dark:hover:bg-surface-700 dark:hover:text-surface-200"
+              >
+                <Icon name="chevronDown" size={13} />
+              </button>
+            </Tooltip>
+          }
+        >
+          <TabOverflowMenu onSelect={() => setOverflowOpen(false)} />
+        </DropdownMenu>
         <DropdownMenu
           ariaLabel="Tab actions"
           placement="bottom-end"

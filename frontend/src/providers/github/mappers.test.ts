@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   mapAccount,
+  mapActivityEvent,
   mapBranch,
   mapCommit,
   mapContributor,
@@ -239,5 +240,82 @@ describe("mapBranch and mapContributor", () => {
       avatarUrl: user.avatar_url,
       contributions: 0,
     });
+  });
+});
+
+describe("mapActivityEvent", () => {
+  function event(overrides: Record<string, unknown>) {
+    return {
+      id: 1,
+      type: "PushEvent",
+      actor: { login: "octocat", avatar_url: null },
+      created_at: "2026-08-01T00:00:00Z",
+      payload: {},
+      ...overrides,
+    } as never;
+  }
+
+  it("summarizes pushes with branch and commit count", () => {
+    const mapped = mapActivityEvent(event({ payload: { ref: "refs/heads/main", size: 4 } }));
+    expect(mapped.kind).toBe("push");
+    expect(mapped.description).toBe("Pushed 4 commits to main");
+    expect(mapped.actor.login).toBe("octocat");
+    expect(mapped.createdAt).toBe("2026-08-01T00:00:00Z");
+  });
+
+  it("maps single-commit pushes with singular wording", () => {
+    const mapped = mapActivityEvent(event({ payload: { ref: "refs/heads/fix", size: 1 } }));
+    expect(mapped.description).toBe("Pushed 1 commit to fix");
+  });
+
+  it("maps pull request events with title and url", () => {
+    const mapped = mapActivityEvent(
+      event({
+        type: "PullRequestEvent",
+        payload: {
+          action: "opened",
+          pull_request: { number: 12, title: "Fix the thing", html_url: "https://github.com/a/b/pull/12" },
+        },
+      }),
+    );
+    expect(mapped.kind).toBe("pull_request");
+    expect(mapped.description).toBe("Pull request opened #12 — Fix the thing");
+    expect(mapped.url).toBe("https://github.com/a/b/pull/12");
+  });
+
+  it("maps issue and label events", () => {
+    const issue = mapActivityEvent(
+      event({
+        type: "IssuesEvent",
+        payload: { action: "closed", issue: { number: 7, title: "Bug" } },
+      }),
+    );
+    expect(issue.kind).toBe("issue");
+    expect(issue.description).toBe("Issue closed #7 — Bug");
+  });
+
+  it("maps releases with tag or name", () => {
+    const mapped = mapActivityEvent(
+      event({ type: "ReleaseEvent", payload: { release: { tag_name: "v1.0.0", html_url: "https://r" } } }),
+    );
+    expect(mapped.kind).toBe("release");
+    expect(mapped.description).toBe("Released v1.0.0");
+  });
+
+  it("maps watch events to stars", () => {
+    const mapped = mapActivityEvent(event({ type: "WatchEvent" }));
+    expect(mapped.kind).toBe("watch");
+    expect(mapped.description).toBe("Starred the repository");
+  });
+
+  it("falls back to a description for unknown events", () => {
+    const mapped = mapActivityEvent(event({ type: "MemberEvent" }));
+    expect(mapped.kind).toBe("other");
+    expect(mapped.description).toBe("Member event");
+  });
+
+  it("handles a missing actor", () => {
+    const mapped = mapActivityEvent(event({ actor: null }));
+    expect(mapped.actor.login).toBe("unknown");
   });
 });

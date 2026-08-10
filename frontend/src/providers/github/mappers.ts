@@ -1,3 +1,4 @@
+import type { RepoActivityEvent, ActivityKind } from "@/domain/models/activity";
 import type { Account } from "@/domain/models/account";
 import type { Branch } from "@/domain/models/branch";
 import type { CommitActivityWeek, ContentItem, FileChangeDetail, TreeEntry } from "@/domain/models/code";
@@ -14,6 +15,7 @@ import type { PullRequestReview, PullRequestReviewState } from "@/domain/models/
 import type { Tag } from "@/domain/models/tag";
 import type { CheckRun, WorkflowRun, WorkflowRunConclusion, WorkflowRunStatus } from "@/domain/models/workflow";
 import type {
+  GitHubActivityEvent,
   GitHubBranch,
   GitHubCheckRun,
   GitHubComment,
@@ -343,5 +345,121 @@ export function mapContributor(raw: GitHubUser): Contributor {
     login: raw.login,
     avatarUrl: raw.avatar_url,
     contributions: 0,
+  };
+}
+
+
+// ---------------------------------------------------------------------------
+// Activity — repository event feed
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a GitHub repository event (GET /repos/{owner}/{repo}/events) to a
+ * provider-neutral activity entry. Descriptions are summarized here so
+ * the UI never touches GitHub-specific payload shapes.
+ */
+export function mapActivityEvent(raw: GitHubActivityEvent): RepoActivityEvent {
+  const actor = raw.actor;
+  const payload = raw.payload ?? {};
+  let kind: ActivityKind = "other";
+  let description = String(raw.type ?? "event");
+  let url: string | null = null;
+
+  switch (raw.type) {
+    case "PushEvent": {
+      kind = "push";
+      const branch = String(payload.ref ?? "").replace(/^refs\/heads\//, "");
+      const count = Number(payload.size ?? 0);
+      const where = branch ? ` to ${branch}` : "";
+      description = count === 1 ? `Pushed 1 commit${where}` : `Pushed ${count} commits${where}`;
+      break;
+    }
+    case "PullRequestEvent": {
+      kind = "pull_request";
+      const pr = payload.pull_request;
+      const action = String(payload.action ?? "updated");
+      const number = pr?.number ? ` #${pr.number}` : "";
+      const title = typeof pr?.title === "string" && pr.title ? ` — ${pr.title}` : "";
+      description = `Pull request ${action}${number}${title}`;
+      url = typeof pr?.html_url === "string" ? pr.html_url : null;
+      break;
+    }
+    case "PullRequestReviewEvent":
+    case "PullRequestReviewCommentEvent": {
+      kind = "comment";
+      const pr = payload.pull_request;
+      const number = pr?.number ? ` #${pr.number}` : "";
+      description = `Reviewed pull request${number}`;
+      url =
+        typeof payload.review?.html_url === "string"
+          ? payload.review.html_url
+          : typeof payload.comment?.html_url === "string"
+            ? payload.comment.html_url
+            : null;
+      break;
+    }
+    case "IssuesEvent": {
+      kind = "issue";
+      const issue = payload.issue;
+      const action = String(payload.action ?? "updated");
+      const number = issue?.number ? ` #${issue.number}` : "";
+      const title = typeof issue?.title === "string" && issue.title.trim() ? ` — ${issue.title}` : "";
+      description = `Issue ${action}${number}${title}`;
+      url = typeof issue?.html_url === "string" ? issue.html_url : null;
+      break;
+    }
+    case "IssueCommentEvent": {
+      kind = "comment";
+      const issue = payload.issue;
+      const number = issue?.number ? ` #${issue.number}` : "";
+      description = `Commented on issue${number}`;
+      url = typeof payload.comment?.html_url === "string" ? payload.comment.html_url : null;
+      break;
+    }
+    case "ReleaseEvent": {
+      kind = "release";
+      const release = payload.release;
+      const name = release?.name ?? release?.tag_name;
+      description = name ? `Released ${name}` : "Published a release";
+      url = typeof release?.html_url === "string" ? release.html_url : null;
+      break;
+    }
+    case "ForkEvent":
+      kind = "fork";
+      description = "Forked the repository";
+      break;
+    case "WatchEvent":
+      kind = "watch";
+      description = "Starred the repository";
+      break;
+    case "CreateEvent": {
+      const refType = String(payload.ref_type ?? "repository");
+      const ref = String(payload.ref ?? "");
+      description = ref ? `Created ${refType} ${ref}` : `Created a ${refType}`;
+      break;
+    }
+    case "DeleteEvent": {
+      const refType = String(payload.ref_type ?? "branch");
+      const ref = String(payload.ref ?? "");
+      description = ref ? `Deleted ${refType} ${ref}` : `Deleted a ${refType}`;
+      break;
+    }
+    default:
+      description = `${String(raw.type ?? "unknown")
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .replace(/_/g, " ")
+        .replace(/\s*Event$/, "")} event`;
+      break;
+  }
+
+  return {
+    id: String(raw.id !== null ? raw.id : `${raw.type}-${raw.created_at}`),
+    kind,
+    actor: actor
+      ? { login: actor.login, avatarUrl: actor.avatar_url ?? null }
+      : { login: "unknown", avatarUrl: null },
+    description,
+    createdAt: raw.created_at,
+    url,
   };
 }

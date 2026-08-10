@@ -274,7 +274,7 @@ pub(crate) async fn git_diff_files(args: GitDiffFilesArgs) -> RepoPilotResult<Ve
 /// Diff between one commit and the on-disk working tree. The path set is
 /// the union of ref-vs-HEAD changes (for files the worktree left untouched)
 /// and the worktree status changes; files equal on both sides are dropped.
-fn diff_worktree_against(
+pub(crate) fn diff_worktree_against(
     repo: &gix::Repository,
     other_id: ObjectId,
     worktree_is_base: bool,

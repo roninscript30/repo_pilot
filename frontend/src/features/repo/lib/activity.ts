@@ -17,6 +17,7 @@ export const REPO_ACTIVITIES = [
   "pulls",
   "issues",
   "releases",
+  "activity",
   "settings",
 ] as const;
 
@@ -40,6 +41,7 @@ export const REPO_ACTIVITY_META: Record<RepoActivity, RepoActivityMeta> = {
   pulls: { icon: "gitMerge", label: "Pull Requests" },
   issues: { icon: "issue", label: "Issues" },
   releases: { icon: "rocket", label: "Releases" },
+  activity: { icon: "activity", label: "Activity" },
   settings: { icon: "settings", label: "Repository Settings" },
 };
 

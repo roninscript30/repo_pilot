@@ -1,4 +1,5 @@
 import type { Account } from "../models/account";
+import type { RepoActivityEvent } from "../models/activity";
 import type { Branch, BranchComparison } from "../models/branch";
 import type { CommitActivityWeek, ContentItem, FileChangeDetail, TreeEntry } from "../models/code";
 import type { CommitDetail, CommitSummary } from "../models/commit";
@@ -53,6 +54,14 @@ export interface Provider {
 
   listRepositories(query: RepositoriesQuery): Promise<readonly Repository[]>;
   searchRepositories(query: RepositoriesQuery): Promise<readonly Repository[]>;
+
+  /** Repositories the active account has starred (repo sources). */
+  listStarredRepositories(limit?: number): Promise<readonly Repository[]>;
+  /** Repositories in one organization, as visible to the token. */
+  listOrganizationRepositories(org: string, limit?: number): Promise<readonly Repository[]>;
+  /** Repositories the active account can see, ordered by most recent update. */
+  listRecentRepositories(limit?: number): Promise<readonly Repository[]>;
+
   getRepository(fullName: string): Promise<Repository>;
   listBranches(fullName: string): Promise<BranchList>;
   compareBranches(fullName: string, base: string, head: string): Promise<BranchComparison>;
@@ -66,6 +75,9 @@ export interface Provider {
   getReadme(fullName: string): Promise<string | null>;
   listContributors(fullName: string, limit?: number): Promise<readonly Contributor[]>;
   getRepositoryOverview(fullName: string): Promise<RepositoryOverview>;
+
+  /** Repository activity feed (pushes, PRs, issues, releases…). */
+  listRepositoryActivity(fullName: string, limit?: number): Promise<readonly RepoActivityEvent[]>;
 
   listPullRequests(fullName: string, query: PullRequestsQuery): Promise<readonly PullRequest[]>;
   getPullRequest(fullName: string, number: number): Promise<PullRequest>;

@@ -9,18 +9,21 @@ const GITHUB_USER = {
   type: "User",
 };
 
+/** Recent timestamp so the dashboard's 7-day activity filter includes this commit. */
+const COMMIT_DATE = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
 const HELLO_WORLD_COMMIT = {
   sha: "c0ffee1234567890abcdef1234567890abcdef12",
   commit: {
     author: {
       name: "Mona Octocat",
       email: "octocat@github.com",
-      date: "2026-08-01T00:00:00Z",
+      date: COMMIT_DATE,
     },
     committer: {
       name: "Mona Octocat",
       email: "octocat@github.com",
-      date: "2026-08-01T00:00:00Z",
+      date: COMMIT_DATE,
     },
     message: "Update README",
   },

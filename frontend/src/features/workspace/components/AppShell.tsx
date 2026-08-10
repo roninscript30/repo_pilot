@@ -14,6 +14,7 @@ import {
   tabPath,
 } from "../lib/tabs";
 import { useUiStore } from "@/stores/ui-store";
+import { useAuthStore } from "@/stores/auth-store";
 
 /**
  * The Repo Pilot IDE shell: global nav rail, workspace tab strip, active
@@ -31,6 +32,13 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const openTab = useWorkspaceStore((state) => state.openTab);
   const activateTab = useWorkspaceStore((state) => state.activateTab);
   const isFirstRun = useRef(true);
+  const accountLogin = useAuthStore((state) => state.account?.login ?? null);
+
+  // Tabs are per-account: reload persisted tabs when the active account
+  // changes (sign in, switch, or sign out).
+  useEffect(() => {
+    useWorkspaceStore.getState().resetForAccount();
+  }, [accountLogin]);
 
   // Global keyboard shortcuts for the shell.
   useEffect(() => {

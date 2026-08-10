@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuthStore } from "@/stores/auth-store";
-import { useRepositories, useSearchRepositories } from "@/features/repositories/hooks";
+import {
+  useOrgRepositories,
+  usePinnedRepositories,
+  useRecentRepositories,
+  useRepositories,
+  useSearchRepositories,
+  useStarredRepositories,
+} from "@/features/repositories/hooks";
+import { useOrganizations } from "@/hooks/use-account";
 import { useFavoritesStore } from "@/stores/favorites-store";
 import { repositoryHealth } from "@/lib/repository-health";
 import { repoWorkspacePathForFullName } from "@/features/workspace/lib/tabs";
@@ -21,6 +29,8 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { HoverCard } from "@/components/ui/HoverCard";
 import { StatusDot, type StatusTone } from "@/components/ui/StatusDot";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
+import { Tabs, type TabItem } from "@/components/ui/Tabs";
+import type { IconName } from "@/components/ui/Icon";
 import { useToast } from "@/components/ui/toast-context";
 import type { Repository } from "@/domain/models/repository";
 
@@ -28,6 +38,9 @@ type ViewMode = "grid" | "table" | "compact";
 type SortMode = "name" | "updated" | "stars";
 type PrivacyFilter = "all" | "private" | "public";
 type RepoList = readonly Repository[];
+
+/** Repository sources browsable from the browser page. */
+type RepoSource = "yours" | "starred" | "recent" | "orgs" | "pinned";
 
 const VIEW_OPTIONS = [
   { value: "grid", label: "Grid", icon: "grid" },
@@ -234,12 +247,13 @@ function CompactRow({ repository }: { repository: Repository }) {
 
 export function RepositoryBrowserPage() {
   const account = useAuthStore((state) => state.account);
-  const repositories = useRepositories(account !== null);
   const favorites = useFavoritesStore((state) => state.favorites);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQuery = searchParams.get("q") ?? "";
 
+  const [source, setSource] = useState<RepoSource>("yours");
+  const [selectedOrg, setSelectedOrg] = useState("");
   const [query, setQuery] = useState(initialQuery);
   const [view, setView] = useState<ViewMode>("grid");
   const [sort, setSort] = useState<SortMode>("updated");
@@ -249,17 +263,47 @@ export function RepositoryBrowserPage() {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [groupByOwner, setGroupByOwner] = useState(false);
 
+  const repositories = useRepositories(account !== null);
+  const starred = useStarredRepositories(account !== null && source === "starred");
+  const recent = useRecentRepositories(account !== null && source === "recent");
+  const organizations = useOrganizations(account !== null && source === "orgs");
+  const orgRepositories = useOrgRepositories(selectedOrg, account !== null && source === "orgs");
+  const pinned = usePinnedRepositories(account !== null && source === "pinned");
   const search = useSearchRepositories(query, account !== null && query.trim().length > 0);
+
+  // Default the org source to the first organization once memberships load.
+  useEffect(() => {
+    if (source === "orgs" && selectedOrg === "" && organizations.data && organizations.data.length > 0) {
+      setSelectedOrg(organizations.data[0]?.login ?? "");
+    }
+  }, [source, selectedOrg, organizations.data]);
 
   useEffect(() => {
     setQuery(initialQuery);
   }, [initialQuery]);
 
+  const sourceData = useMemo(() => {
+    switch (source) {
+      case "starred":
+        return starred;
+      case "recent":
+        return recent;
+      case "orgs":
+        return orgRepositories;
+      case "pinned":
+        // A pinned repo that no longer exists is skipped silently; only
+        // the repos that resolve successfully are shown.
+        return { ...pinned, error: null };
+      case "yours":
+        return repositories;
+    }
+  }, [source, starred, recent, orgRepositories, pinned, repositories]);
+
   const results = useMemo<RepoList>(() => (
-    query.trim().length > 0 && search.data ? search.data : (repositories.data ?? [])
-  ), [query, search.data, repositories.data]);
-  const isLoading = repositories.isLoading || (query.trim().length > 0 && search.isFetching);
-  const error = repositories.error ?? search.error;
+    query.trim().length > 0 && search.data ? search.data : (sourceData.data ?? [])
+  ), [query, search.data, sourceData.data]);
+  const isLoading = sourceData.isLoading || (query.trim().length > 0 && search.isFetching);
+  const error = sourceData.error ?? search.error;
 
   const languages = useMemo(() => {
     const set = new Set<string>();
@@ -307,13 +351,35 @@ export function RepositoryBrowserPage() {
     }
   };
 
+  const tabItems = useMemo<readonly TabItem[]>(() => {
+    const make = (id: RepoSource, label: string, icon: IconName, count: number | undefined): TabItem => ({
+      id,
+      label,
+      icon,
+      ...(count !== undefined ? { badge: count } : {}),
+    });
+    return [
+      make("yours", "Yours", "repo", repositories.data?.length),
+      make("starred", "Starred", "star", starred.data?.length),
+      make("recent", "Recent", "clock", recent.data?.length),
+      make("orgs", "Organizations", "org", organizations.data?.length),
+      make("pinned", "Pinned", "pin", pinned.data?.length),
+    ];
+  }, [
+    repositories.data?.length,
+    starred.data?.length,
+    recent.data?.length,
+    organizations.data?.length,
+    pinned.data?.length,
+  ]);
+
   return (
     <div className="mx-auto max-w-6xl px-6 py-6">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-bold text-surface-900 dark:text-surface-100">Repositories</h1>
           <p className="text-sm text-surface-500">
-            {results.length > 0 ? `${visible.length} of ${results.length} repositories` : "Browse, search, and pin repositories across your accounts."}
+            {results.length > 0 ? `${visible.length} of ${results.length} repositories` : "Browse, search, and pin repositories across your accounts and sources."}
           </p>
         </div>
         <SegmentedControl
@@ -324,7 +390,15 @@ export function RepositoryBrowserPage() {
         />
       </div>
 
-      <div className="mb-4 flex flex-wrap items-end gap-2.5">
+      <Tabs
+        items={tabItems}
+        activeId={source}
+        onChange={(id) => setSource(id as RepoSource)}
+        ariaLabel="Repository source"
+        size="sm"
+      />
+
+      <div className="mt-4 mb-4 flex flex-wrap items-end gap-2.5">
         <div className="w-full max-w-sm">
           <SearchInput
             value={query}
@@ -383,6 +457,38 @@ export function RepositoryBrowserPage() {
         </div>
       </div>
 
+      {source === "orgs" ? (
+        <div className="mb-4">
+          {organizations.isLoading ? (
+            <Skeleton className="h-8 w-72" />
+          ) : organizations.data && organizations.data.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {organizations.data.map((org) => {
+                const isActive = org.login === selectedOrg;
+                return (
+                  <button
+                    key={org.login}
+                    type="button"
+                    onClick={() => setSelectedOrg(org.login)}
+                    aria-pressed={isActive}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                      isActive
+                        ? "border-accent-400 bg-accent-50 text-accent-700 dark:border-accent-600 dark:bg-accent-500/10 dark:text-accent-400"
+                        : "border-surface-200 text-surface-600 hover:bg-surface-100 dark:border-surface-600 dark:text-surface-300 dark:hover:bg-surface-700/50"
+                    }`}
+                  >
+                    {org.avatarUrl ? <Avatar name={org.login} src={org.avatarUrl} size="xs" /> : <Icon name="org" size={13} />}
+                    {org.login}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-surface-500">No organizations found for this account.</p>
+          )}
+        </div>
+      ) : null}
+
       {isLoading ? (
         view === "grid" ? (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -395,7 +501,13 @@ export function RepositoryBrowserPage() {
         <ErrorState
           title="Could not load repositories"
           description={error instanceof Error ? error.message : "Check your token permissions and try again."}
-          onRetry={() => { void repositories.refetch(); void search.refetch(); }}
+          onRetry={() => {
+            void repositories.refetch();
+            void search.refetch();
+            void starred.refetch();
+            void recent.refetch();
+            void orgRepositories.refetch();
+          }}
         />
       ) : visible.length === 0 ? (
         <EmptyState
@@ -405,7 +517,15 @@ export function RepositoryBrowserPage() {
               ? "You have not favorited any repositories yet. Use the ⋯ menu on a repository to favorite it."
               : showPinnedOnly
                 ? "You have not pinned any repositories yet."
-                : "Try different filters or connect an account with repositories."
+                : source === "starred"
+                  ? "You have not starred any repositories yet. Star repositories on GitHub and they will appear here."
+                  : source === "recent"
+                    ? "No recently updated repositories found for this account."
+                    : source === "orgs"
+                      ? "No repositories found in this organization."
+                      : source === "pinned"
+                        ? "You have not pinned any repositories yet. Use the pin action on a repository to add it here."
+                        : "Try different filters or connect an account with repositories."
           }
           action={showFavoritesOnly || showPinnedOnly ? (
             <Button size="sm" variant="secondary" onClick={() => { setShowFavoritesOnly(false); setShowPinnedOnly(false); }}>Clear filters</Button>

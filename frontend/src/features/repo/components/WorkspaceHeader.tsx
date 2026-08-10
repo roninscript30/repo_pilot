@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/toast-context";
 import { useFavoritesStore } from "@/stores/favorites-store";
 import { compactNumber, formatDate, timeAgo } from "@/lib/format";
 import { cloneUrl } from "@/lib/clone-url";
+import { openLocalFolder } from "@/services/open-folder";
 import type { Repository } from "@/domain/models/repository";
 
 interface WorkspaceHeaderProps {
@@ -84,6 +85,25 @@ export function WorkspaceHeader({ repository, latestRelease, localPath }: Worksp
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
+          {localPath ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                void (async () => {
+                  const opened = await openLocalFolder(localPath);
+                  if (opened) {
+                    toast({ title: "Opened local folder", tone: "success" });
+                  } else {
+                    toast({ title: "Open local folder", description: localPath, tone: "info" });
+                  }
+                })();
+              }}
+            >
+              <Icon name="folder" size={13} />
+              Open local
+            </Button>
+          ) : null}
           <Button
             size="sm"
             variant="secondary"

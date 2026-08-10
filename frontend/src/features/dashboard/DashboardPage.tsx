@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useAuthStore } from "@/stores/auth-store";
 import { useRepositories } from "@/features/repositories/hooks";
@@ -16,8 +17,10 @@ import { Avatar } from "@/components/ui/Avatar";
 import { StatusDot, type StatusTone } from "@/components/ui/StatusDot";
 import { Skeleton, SkeletonList } from "@/components/ui/Skeleton";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { useToast } from "@/components/ui/toast-context";
 import { useUiStore } from "@/stores/ui-store";
-import type { Repository } from "@/domain/models/repository";
+import type { Contributor, Repository } from "@/domain/models/repository";
+import type { Release } from "@/domain/models/release";
 import type { WorkflowRun } from "@/domain/models/workflow";
 
 const HEALTH_TONE: Record<string, StatusTone> = {
@@ -95,6 +98,75 @@ function WorkflowBadge({ run }: { run: WorkflowRun }) {
   return <Badge>queued</Badge>;
 }
 
+/** Refetch every scoped dashboard query and the repository list. */
+function SyncAllButton() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [syncing, setSyncing] = useState(false);
+
+  return (
+    <button
+      type="button"
+      disabled={syncing}
+      onClick={() => {
+        setSyncing(true);
+        void (async () => {
+          try {
+            await Promise.all([
+              queryClient.refetchQueries({ queryKey: ["dashboard"] }),
+              queryClient.refetchQueries({ queryKey: ["repositories"] }),
+            ]);
+            toast({ title: "Synced", description: "Dashboard and repositories refreshed.", tone: "success" });
+          } finally {
+            setSyncing(false);
+          }
+        })();
+      }}
+      className="inline-flex h-8 items-center gap-2 rounded-md border border-surface-200 bg-surface-0 px-3 text-xs font-medium text-surface-600 shadow-card transition-colors hover:border-accent-300 hover:text-surface-900 disabled:opacity-60 dark:border-surface-600 dark:bg-surface-50 dark:text-surface-300"
+    >
+      <Icon name="refresh" size={13} className={syncing ? "animate-spin" : ""} />
+      {syncing ? "Syncing…" : "Sync all"}
+    </button>
+  );
+}
+
+function ReleaseRow({ release, fullName }: { release: Release; fullName: string }) {
+  return (
+    <li className="flex items-center gap-3 px-4 py-2.5">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-50 text-accent-600 dark:bg-accent-500/15 dark:text-accent-500">
+        <Icon name="tag" size={13} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <a
+          href={release.url}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="block truncate text-[13px] font-medium text-surface-800 hover:text-accent-700 dark:text-surface-200 dark:hover:text-accent-500"
+        >
+          {release.name ?? release.tagName}
+        </a>
+        <p className="truncate text-2xs text-surface-400">
+          {fullName} · {release.tagName} · {release.publishedAt ? timeAgo(release.publishedAt) : "draft"}
+        </p>
+      </div>
+      {release.isPrerelease ? <Badge>pre-release</Badge> : null}
+    </li>
+  );
+}
+
+function ContributorRow({ contributor, fullName }: { contributor: Contributor; fullName: string }) {
+  return (
+    <li className="flex items-center gap-3 px-4 py-2.5">
+      <Avatar name={contributor.login} src={contributor.avatarUrl} size="sm" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-medium text-surface-800 dark:text-surface-200">{contributor.login}</p>
+        <p className="truncate text-2xs text-surface-400">{fullName}</p>
+      </div>
+      <span className="text-2xs text-surface-400">{contributor.contributions} commits</span>
+    </li>
+  );
+}
+
 export function DashboardPage() {
   const account = useAuthStore((state) => state.account);
   const repositories = useRepositories(account !== null);
@@ -120,6 +192,7 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <SyncAllButton />
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
@@ -316,6 +389,38 @@ export function DashboardPage() {
                       </div>
                       <WorkflowBadge run={run} />
                     </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            {/* Recent releases */}
+            <Card>
+              <CardHeader title="Recent releases" subtitle="Latest releases in pinned repositories" action={<Icon name="tag" size={14} className="text-surface-400" />} />
+              {isLoading ? (
+                <SkeletonList rows={3} />
+              ) : dashboard.releases.length === 0 ? (
+                <div className="p-4 text-xs text-surface-500">No releases found.</div>
+              ) : (
+                <ul className="divide-y divide-surface-100 dark:divide-surface-700">
+                  {dashboard.releases.slice(0, 6).map(({ release, fullName }) => (
+                    <ReleaseRow key={`${fullName}-${release.id}`} release={release} fullName={fullName} />
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            {/* Top contributors */}
+            <Card>
+              <CardHeader title="Top contributors" subtitle="Most active contributors in pinned repositories" action={<Icon name="users" size={14} className="text-surface-400" />} />
+              {isLoading ? (
+                <SkeletonList rows={3} />
+              ) : dashboard.contributors.length === 0 ? (
+                <div className="p-4 text-xs text-surface-500">No contributor data available.</div>
+              ) : (
+                <ul className="divide-y divide-surface-100 dark:divide-surface-700">
+                  {dashboard.contributors.slice(0, 6).map(({ contributor, fullName }) => (
+                    <ContributorRow key={`${fullName}-${contributor.login}`} contributor={contributor} fullName={fullName} />
                   ))}
                 </ul>
               )}
