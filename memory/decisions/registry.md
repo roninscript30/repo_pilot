@@ -41,3 +41,4 @@ Date: YYYY-MM-DD
 - `ADR-0013-system-git-for-network-and-complex-ops.md`
 - `ADR-0014-commit-graph-and-git-events-command-surface.md`
 - `ADR-0015-compare-center-and-structured-diff.md`
+- `ADR-0016-repository-sources-and-dashboard-sync.md`

@@ -6,7 +6,7 @@ Last Updated: 2026-08-08
 
 ## Current Stage
 
-Phase 0 foundation complete; Phase 1 UI/UX build complete (initial application commit `b2cd37b`); feature-module Repository IDE refactor complete and committed (`199b3d6`) along with the Repo Pilot rebrand and the frontend split into its own `frontend/` npm workspace. **Phase 1.5 in progress: Slices 1-5 are complete and committed — Slice 1 "Account platform" (`7a6e21f`, ADR-0012), Slice 2 "Native Git engine" (`50e739e`, system-git clone/network + all GitOperations + commit graph + file watching, ADRs 0013/0014), Slice 3 "Commit center + Sync center" (`42f032b`), Slice 4 "Compare center + diff experience" (`aa2d3a7`, structured hunks, multi-source compare incl. worktree, unified/split/word DiffViewer, merge+rebase preview, ADR-0015), Slice 5 "Branch explorer + interactive branch graph" (`7f198b7`, BranchGraph SVG canvas: lanes from DAG parents, wheel zoom/drag pan/fit, ref chips (branch/remote/tag/HEAD) with checkout/rename/delete, click commit → inline CommitInspector). Slice 6 "PR + Issues mutations" is next.**
+Phase 0 foundation complete; Phase 1 UI/UX build complete (initial application commit `b2cd37b`); feature-module Repository IDE refactor complete and committed (`199b3d6`) along with the Repo Pilot rebrand and the frontend split into its own `frontend/` npm workspace. **Phase 1.5 complete: all seven slices are committed — Slice 1 "Account platform" (`7a6e21f`, ADR-0012), Slice 2 "Native Git engine" (`50e739e`, system-git clone/network + all GitOperations + commit graph + file watching, ADRs 0013/0014), Slice 3 "Commit center + Sync center" (`42f032b`), Slice 4 "Compare center + diff experience" (`aa2d3a7`, structured hunks, multi-source compare incl. worktree, unified/split/word DiffViewer, merge+rebase preview, ADR-0015), Slice 5 "Branch explorer + interactive branch graph" (`7f198b7`), Slice 6 "PR + Issues workspaces" (`c94884f`), and Slice 7 "Repo activity + persistent per-account tabs + repo sync sources" (repo sources Yours/Starred/Recent/Organizations/Pinned, dashboard Sync all + releases/contributors, per-account tab overflow, "Open local", ADR-0016).** All gates green (see Verification).
 
 ## Completed
 
@@ -41,7 +41,7 @@ Phase 0 foundation complete; Phase 1 UI/UX build complete (initial application c
 
 ## In Progress
 
-- Interactive desktop verification (`npm run tauri dev` run through the UI, including device flow, the native folder picker, and the new diff/compare/sync/clone commands).
+- Interactive desktop verification (`npm run tauri dev` run through the UI, including device flow, the native folder picker, clone/push/pull, the branch graph, and the new repo-source tabs + "Open local").
 
 ## Not Started
 
@@ -51,5 +51,5 @@ Phase 0 foundation complete; Phase 1 UI/UX build complete (initial application c
 
 ## Next Likely Work
 
-- Slice 6: PR + Issues workspaces with Provider mutations (create/edit/merge/comment/review/labels for PRs and issues); Slice 7: repo activity + persistent per-account tabs + repo sync sources.
 - Register a real GitHub OAuth App and set `VITE_GITHUB_CLIENT_ID` for production device flow.
+- Follow-ups from Slice 7: GitHub-profile pins via GraphQL `user.pinnedItems` if ever wanted (distinct from app-local pins, ADR-0016); per-account dashboard aggregation across accounts.

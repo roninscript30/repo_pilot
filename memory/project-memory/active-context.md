@@ -2,13 +2,13 @@
 
 Status: Active
 Owner: Project Maintainers
-Last Updated: 2026-08-08
+Last Updated: 2026-08-10
 
 ## Current Focus
 
 The application was refactored into a feature-module Repository IDE: a feature-module architecture, a VS Code-style workspace shell, a `/repo/:owner/:name/:activity` repository workspace wired to the Git engine (working tree, sync, branches, compare), and a settings page. The Rust GitEngine was expanded with diff/compare/merge-preview/sync-log commands and a native folder-picker command. All TS gates, unit tests, e2e, and `cargo check`/`clippy -D warnings`/`fmt --check` are green, and the refactor + Repo Pilot rebrand + frontend split are committed (`199b3d6`).
 
-**Phase 1.5:** Slices 1-6 are complete and committed — see the state bullets below. Next: Slice 7 "Repo activity + persistent per-account tabs + repo sync sources".
+**Phase 1.5 is complete — all seven slices committed.** Slice 7 ("Repo activity + persistent per-account tabs + repo sync sources", ADR-0016) added: the repository activity feed (`listRepositoryActivity` + `ActivityFeed`), provider repo sources (`listStarredRepositories` / `listOrganizationRepositories` / `listRecentRepositories`, pinned resolved from localStorage pins) surfaced as Yours / Starred / Recent / Organizations / Pinned tabs in `RepositoryBrowserPage`, dashboard "Sync all" + Recent releases / Top contributors cards, per-account persistent tabs (`workspace.tabs.{login}`) with a tab-overflow menu (Open / Recently opened / Pinned sections), and a real "Open local" desktop command (`open_folder`). See `status.md` and the implementation log for slice-by-slice detail.
 
 ## Product Name Note
 
