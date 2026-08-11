@@ -2,7 +2,7 @@
 
 Status: Active
 Owner: Project Maintainers
-Last Updated: 2026-08-06
+Last Updated: 2026-08-11
 
 This directory stores evolving project memory for humans and AI agents.
 
@@ -15,6 +15,7 @@ Project memory is different from reusable skills. Memory records what happened, 
 - `lessons-learned.md` - durable lessons from work
 - `constraints.md` - known constraints and limits
 - `technical-debt.md` - tracked debt and cleanup opportunities
+- `code-review-YYYY-MM-DD-<slice>.md` - per-commit code-review records (one file per reviewed slice; e.g. `code-review-2026-08-11-slice7.md`, reviewed commit `05fcc00`)
 
 ## Agent Maintenance Rule
 

@@ -2,7 +2,7 @@
 
 Status: Active
 Owner: Project Maintainers
-Last Updated: 2026-08-06
+Last Updated: 2026-08-11
 
 This manifest defines where knowledge belongs so the memory system stays clean.
 
@@ -27,6 +27,7 @@ This manifest defines where knowledge belongs so the memory system stays clean.
 - Put feature status and behavior expectations in `features/catalog.md`.
 - Put reusable how-to knowledge in `skills/`.
 - Put historical project context in `project-memory/`.
+- Put code reviews in `project-memory/` as `code-review-YYYY-MM-DD-<slice>.md` — one file per reviewed slice, stamped with the reviewed commit, severity-keyed findings, and per-finding fix guidance. Mirror fixable defects into `technical-debt.md` under "Code Review Follow-ups" so they stay actionable.
 - Put significant decisions in `decisions/` as ADRs.
 
 ## Duplication Rule

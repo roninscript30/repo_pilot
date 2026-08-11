@@ -2,7 +2,7 @@
 
 Status: Active
 Owner: Project Maintainers
-Last Updated: 2026-08-07
+Last Updated: 2026-08-11
 
 This log records meaningful project progress in chronological order.
 
@@ -169,3 +169,12 @@ This log records meaningful project progress in chronological order.
 - **Fixes en route:** `git_compare_refs` handles `worktree` as either side (was stuck "Computing…"); `diff.rs::diff_worktree_against` made `pub(crate)`; e2e signin fixture dates made dynamic (`COMMIT_DATE = now - 24h`) so the dashboard's 7-day activity filter keeps including them.
 - Tests: 168 Vitest (19 files; +2 workspace recently-closed cases), 16 Rust, 10/10 e2e. typecheck/lint/build + cargo check/clippy -D warnings/fmt clean.
 - Next: interactive desktop verification (`npm run tauri dev`) of device flow, folder picker, clone/push/pull, branch graph, and the new repo-source tabs; register a real OAuth App `VITE_GITHUB_CLIENT_ID`; release pipeline and extra providers (GitLab/Gitea/Forgejo) remain out of scope.
+
+## Code Review — Slice 7 (2026-08-11)
+
+- Ran a multi-angle `/code-review` of the Slice 7 change (commit `05fcc00`): cross-file caller tracing, provider-interface impact, Rust worktree-diff semantics vs `git_diff_files`, GitHub API payload shape, and mapper logic. **15 verified findings** — typecheck + unit tests pass, so all findings are behavioral/logic defects, not compile failures.
+- **4 P1 functional/data bugs:** (1) tab-overflow menu rows only close the dropdown, never navigate/reopen (`WorkspaceTabBar.tsx:282`); (2) per-account tab isolation leaks through the un-migrated legacy anonymous key fallback (`workspace/store.ts:74`); (3) `mapContributor` hardcodes `contributions: 0` so the new Top contributors card always shows "0 commits" and its sort is a no-op (`mappers.ts:347`); (4) `AppShell` restore races session hydration — launches land on `/dashboard` instead of the account's last-active tab (`AppShell.tsx:39`).
+- **P2 consistency/efficiency/observability:** dashboard-vs-repo-workspace cache-key divergence for the same releases/contributors data + "Sync all" misses all `['repository', …]` queries (`dashboard/hooks.ts:98`); pinned source normalizes `error` to null so failures show "no pins" (`RepositoryBrowserPage.tsx:296`); SyncAllButton toasts success even when every refetch fails (`DashboardPage.tsx:119`); unconditional `useRepositories` fires a wasted call per browser visit (`RepositoryBrowserPage.tsx:266`); pinned set re-parsed from localStorage every render + stale overflow-menu Pinned section (`repositories/hooks.ts:65`); stale `selectedOrg` survives account switches (`RepositoryBrowserPage.tsx:275`); bulk close skips `recordRecentlyClosed` (`workspace/store.ts:192`).
+- **P2/P3 Rust + e2e:** `git_compare_refs` re-implements the worktree-ref dispatch that `git_diff_files` already owns (`lib.rs:1246`); `signin.spec.ts` doesn't stub the new `releases`/`contributors` routes so sign-in e2e hits the real network (`e2e/signin.spec.ts:37`).
+- **P3 cleanup:** tag pushes rendered as branch pushes (`mappers.ts:1515`); `currentStorageKeys()` wrapper + 3 duplicated `githubProvider()` helpers + dead `useReleases`/`useContributors` (`workspace/store.ts:228`).
+- **Full report:** `memory/project-memory/code-review-2026-08-11-slice7.md` (severity-keyed, per-finding fix guidance). Fixable defects mirrored in `technical-debt.md` → "Code Review Follow-ups (Slice 7)". **Fix order:** findings 1–4 first (user-visible), then 5–11, then 12–15.

@@ -2,7 +2,7 @@
 
 Status: Active
 Owner: Project Maintainers
-Last Updated: 2026-08-10
+Last Updated: 2026-08-11
 
 ## Current Focus
 
@@ -35,7 +35,7 @@ The repository and remote are named `repo_pilot`. The product display name is **
 
 ## Near-Term Priorities
 
-- Phase 1.5 slice 7: Repo activity + persistent per-account tabs + repo sync sources. (Slice 6 — PR/issue mutations — is done.)
+- **Close the Slice 7 code-review follow-ups (commit `05fcc00`).** 15 verified findings recorded in `code-review-2026-08-11-slice7.md` and mirrored in `technical-debt.md` → "Code Review Follow-ups (Slice 7)". Fix order: the 4 P1 bugs first (tab-overflow menu never navigates; per-account tab isolation leak via the legacy key fallback; Top contributors "0 commits"; AppShell restore race), then P2 consistency/efficiency, then P3 cleanup.
 - Register a real GitHub OAuth App and set `VITE_GITHUB_CLIENT_ID` for production device flow (placeholder client_id currently).
 - Interactive desktop verification (`npm run tauri dev`) including device flow and the new commands.
 
@@ -58,3 +58,4 @@ The repository and remote are named `repo_pilot`. The product display name is **
 - Tauri commands marshal camelCase (serde rename_all) matching the TS contract; args structs are separate from response structs. `repo.merge_base()` returns an attached `Id` — detach with `.detach()` before treating it as an `ObjectId`; tree/commit walkers yield per-item `Result` (map each element); `gix::object::tree::diff::Change` `location()`, `id()`, `diff(&mut cache)`, and Rewrite `copy` are accessors / a plain bool (no `*copy`).
 - UI kit constraints: `Button` sizes are only `sm|md` (no `xs`; use `sm`) with variants `primary|secondary|ghost|danger`; `CardHeader` accepts an `action` ReactNode; `SearchInput` `onChange(value: string)`; the icon set has no `spinner` — use `refresh` for busy/picking states.
 - Keep the knowledge base simple and maintained; update memory after meaningful work.
+- The most recent code review (Slice 7, commit `05fcc00`) lives at `memory/project-memory/code-review-2026-08-11-slice7.md`; check `technical-debt.md` → "Code Review Follow-ups" before touching tab persistence (`workspace/store.ts`, `AppShell`, `WorkspaceTabBar`), repo sources / dashboard aggregation, the GitHub mappers (`contributions` field), or the worktree-diff path (`lib.rs`/`diff.rs`).
